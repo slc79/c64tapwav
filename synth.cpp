@@ -11,9 +11,9 @@ using namespace std;
 #define WAVE_FREQ 44100
 #define C64_FREQ 985248
 
-// Nyquist frequency of low-pass filter (must be max. WAVE_FREQ / 2 or you
+// Cutoff frequency of low-pass filter (must be max. WAVE_FREQ / 2 or you
 // will get aliasing)
-#define LPFILTER_FREQ 8000
+#define LPFILTER_FREQ 22050
 
 #define NORMALIZED_LPFILTER_FREQ (float(LPFILTER_FREQ) / float(WAVE_FREQ))
 #define LANCZOS_EFFECTIVE_RADIUS (LANCZOS_RADIUS / (NORMALIZED_LPFILTER_FREQ * 2.0))
