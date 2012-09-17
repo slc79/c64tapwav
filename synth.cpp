@@ -15,6 +15,9 @@ using namespace std;
 // will get aliasing)
 #define LPFILTER_FREQ 22050
 
+// Cutoff frequency of high-pass filter
+#define HPFILTER_FREQ 40
+
 #define NORMALIZED_LPFILTER_FREQ (float(LPFILTER_FREQ) / float(WAVE_FREQ))
 #define LANCZOS_EFFECTIVE_RADIUS (LANCZOS_RADIUS / (NORMALIZED_LPFILTER_FREQ * 2.0))
 
@@ -80,6 +83,44 @@ struct pulse {
 };
 vector<pulse> pulses;
 
+static float a1, a2, b0, b1, b2;
+static float d0, d1;
+
+static void filter_init(float cutoff_radians)
+{
+	float resonance = 1.0f / sqrt(2.0f);
+	float sn, cs;
+	sincosf(cutoff_radians, &sn, &cs);
+
+	float alpha = float(sn / (2 * resonance));
+
+	// coefficients for highpass filter
+        float a0 = 1 + alpha;
+	b0 = (1 + cs) * 0.5f;
+	b1 = -(1 + cs);
+	b2 = b0;
+        a1 = -2 * cs;
+        a2 = 1 - alpha;
+
+	float invA0 = 1.0f / a0;
+	b0 *= invA0;
+	b1 *= invA0;
+	b2 *= invA0;
+	a1 *= invA0;
+	a2 *= invA0;
+
+	// reset filter delays
+	d0 = d1 = 0.0f;
+}
+
+static float filter_update(float in)
+{
+	float out = b0*in + d0;
+	d0 = b1 * in - a1 * out + d1;
+	d1 = b2 * in - a2 * out;
+	return out;
+}
+
 int main(int argc, char **argv)
 {
 	make_table();
@@ -114,11 +155,14 @@ int main(int argc, char **argv)
 
 	int pulse_begin = 0;
 
+	vector<float> samples;
+	samples.reserve(len_samples);
+
 	for (int i = 0; i < len_samples; ++i) {
 //	for (int i = 50000000; i < 51000000; ++i) {
 //		double t = i * 0.01;
 		double t = i;
-		double sample = 0.0;
+		double sample = -0.5;
 		for (unsigned j = pulse_begin; j < pulses.size(); ++j) {
 			if (t - pulses[j].end > LANCZOS_EFFECTIVE_RADIUS) {
 				++pulse_begin;
@@ -130,8 +174,25 @@ int main(int argc, char **argv)
 			float contribution = window_integral(pulses[j].start - t, pulses[j].end - t);
 			sample += contribution;
 		}
-		printf("%f\n", sample);
-//		short s = lrintf((sample - 0.5f) * 16384.0f);
-//		fwrite(&s, 2, 1, stdout);
+		samples.push_back(sample);
+	}
+
+	// filter forwards, then backwards (perfect phase filtering)
+	vector<float> filtered_samples, refiltered_samples;
+	filtered_samples.resize(len_samples);
+	refiltered_samples.resize(len_samples);
+
+	filter_init(M_PI * HPFILTER_FREQ / WAVE_FREQ);
+	for (int i = 0; i < len_samples; ++i) {
+		filtered_samples[i] = filter_update(samples[i]);
+	}
+	filter_init(M_PI * HPFILTER_FREQ / WAVE_FREQ);
+	for (int i = len_samples; i --> 0; ) {
+		refiltered_samples[i] = filter_update(filtered_samples[i]);
+	}
+	for (int i = 0; i < len_samples; ++i) {
+		//printf("%f %f\n", samples[i], refiltered_samples[i]);
+		short s = lrintf(refiltered_samples[i] * 16384.0f);
+		fwrite(&s, 2, 1, stdout);
 	}
 }
