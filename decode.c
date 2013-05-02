@@ -6,6 +6,7 @@
 
 #define LANCZOS_RADIUS 30
 #define LEN 813440
+#define HYSTERESIS_LIMIT 1000
 
 double sinc(double x)
 {
@@ -92,9 +93,10 @@ int main(int argc, char **argv)
 #endif
 	int last_bit = -1;
 	double last_upflank = -1;
+	int last_max_level = 0;
 	for (int i = 0; i < LEN; ++i) {
 		int bit = (in[i] > 0) ? 1 : 0;
-		if (bit == 1 && last_bit == 0) {
+		if (bit == 1 && last_bit == 0 && last_max_level > HYSTERESIS_LIMIT) {
 			// up-flank!
 			double t = find_zerocrossing(i - 1) * (123156.0/44100.0);
 			if (last_upflank > 0) {
@@ -103,7 +105,9 @@ int main(int argc, char **argv)
 				printf("0x%x\n", len);
 			}
 			last_upflank = t;
+			last_max_level = 0;
 		}
+		last_max_level = std::max(last_max_level, abs(in[i]));
 		last_bit = bit;
 	}
 }
