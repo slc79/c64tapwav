@@ -2,10 +2,11 @@
 #include <math.h>
 #include <unistd.h>
 #include <assert.h>
+#include <vector>
 #include <algorithm>
 
 #define LANCZOS_RADIUS 30
-#define LEN 813440
+#define BUFSIZE 4096
 #define HYSTERESIS_LIMIT 1000
 
 double sinc(double x)
@@ -35,38 +36,36 @@ double weight(double x)
 }
 #endif
 
-double interpolate(const short *in, double i)
+double interpolate(const std::vector<short> &pcm, double i)
 {
-	int lower = std::max(int(ceil(i - LANCZOS_RADIUS)), 0);
-	int upper = std::min(int(floor(i + LANCZOS_RADIUS)), LEN - 1);
+	int lower = std::max<int>(ceil(i - LANCZOS_RADIUS), 0);
+	int upper = std::min<int>(floor(i + LANCZOS_RADIUS), pcm.size() - 1);
 	double sum = 0.0f;
 
 	for (int x = lower; x <= upper; ++x) {
-		sum += in[x] * weight(i - x);
+		sum += pcm[x] * weight(i - x);
 	}
 	return sum;
 }
 	
-short in[LEN];
-
 // between [x,x+1]
-double find_zerocrossing(int x)
+double find_zerocrossing(const std::vector<short> &pcm, int x)
 {
-	if (in[x] == 0) {
+	if (pcm[x] == 0) {
 		return x;
 	}
-	if (in[x + 1] == 0) {
+	if (pcm[x + 1] == 0) {
 		return x + 1;
 	}
 
-	assert(in[x + 1] > 0);
-	assert(in[x] < 0);
+	assert(pcm[x + 1] > 0);
+	assert(pcm[x] < 0);
 
 	double lower = x;
 	double upper = x + 1;
 	while (upper - lower > 1e-6) {
 		double mid = 0.5f * (upper + lower);
-		if (interpolate(in, mid) > 0) {
+		if (interpolate(pcm, mid) > 0) {
 			upper = mid;
 		} else {
 			lower = mid;
@@ -78,7 +77,15 @@ double find_zerocrossing(int x)
 
 int main(int argc, char **argv)
 {
-	fread(in, LEN*2, 1, stdin);
+	std::vector<short> pcm;
+
+	while (!feof(stdin)) {
+		short buf[BUFSIZE];
+		ssize_t ret = fread(buf, 2, BUFSIZE, stdin);
+		if (ret >= 0) {
+			pcm.insert(pcm.end(), buf, buf + ret);
+		}
+	}	
 
 #if 0
 	for (int i = 0; i < LEN; ++i) {
@@ -94,11 +101,11 @@ int main(int argc, char **argv)
 	int last_bit = -1;
 	double last_upflank = -1;
 	int last_max_level = 0;
-	for (int i = 0; i < LEN; ++i) {
-		int bit = (in[i] > 0) ? 1 : 0;
+	for (int i = 0; i < pcm.size(); ++i) {
+		int bit = (pcm[i] > 0) ? 1 : 0;
 		if (bit == 1 && last_bit == 0 && last_max_level > HYSTERESIS_LIMIT) {
 			// up-flank!
-			double t = find_zerocrossing(i - 1) * (123156.0/44100.0);
+			double t = find_zerocrossing(pcm, i - 1) * (123156.0/44100.0);
 			if (last_upflank > 0) {
 //				fprintf(stderr, "length: %f (0x%x)\n", t - last_upflank, lrintf(t - last_upflank));
 				int len = lrintf(t - last_upflank);
@@ -107,7 +114,7 @@ int main(int argc, char **argv)
 			last_upflank = t;
 			last_max_level = 0;
 		}
-		last_max_level = std::max(last_max_level, abs(in[i]));
+		last_max_level = std::max(last_max_level, abs(pcm[i]));
 		last_bit = bit;
 	}
 }
