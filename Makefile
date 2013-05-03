@@ -1,3 +1,5 @@
+CXXFLAGS=-O2 -g -Wall
+
 all: synth decode
 
 %.o: %.cpp
@@ -15,4 +17,4 @@ synth: synth.o synth_main.o
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
 clean:
-	$(RM) synth $(OBJS) $(DEPS)
+	$(RM) synth decode $(OBJS) $(DEPS)
