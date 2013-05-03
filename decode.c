@@ -13,6 +13,8 @@
 #define C64_FREQUENCY 985248
 #define TAP_RESOLUTION 8
 
+#define SYNC_PULSE_START 1000
+#define SYNC_PULSE_END 15000
 #define SYNC_PULSE_LENGTH 380.0
 #define SYNC_TEST_TOLERANCE 1.10
 
@@ -144,33 +146,43 @@ int main(int argc, char **argv)
 
 	// Calibrate on the first ~25k pulses (skip a few, just to be sure).
 	double calibration_factor = 1.0f;
-	if (pulses.size() < 20000) {
+	if (pulses.size() < SYNC_PULSE_END) {
 		fprintf(stderr, "Too few pulses, not calibrating!\n");
 	} else {
 		double sum = 0.0;
-		for (int i = 1000; i < 26000; ++i) {
+		for (int i = SYNC_PULSE_START; i < SYNC_PULSE_END; ++i) {
 			sum += pulses[i].len;
 		}
-		double mean_length = C64_FREQUENCY * sum / 25000.0f;
+		double mean_length = C64_FREQUENCY * sum / (SYNC_PULSE_END - SYNC_PULSE_START);
 		calibration_factor = SYNC_PULSE_LENGTH / mean_length;
-		fprintf(stderr, "Cycle length: %.2f -> 380.0 (change %+.2f%%)\n",
+		fprintf(stderr, "Calibrated sync pulse length: %.2f -> 380.0 (change %+.2f%%)\n",
 			mean_length, 100.0 * (calibration_factor - 1.0));
-	
+
 		// Check for pulses outside +/- 10% (sign of misdetection).
-		for (int i = 1000; i < 25000; ++i) {
+		for (int i = SYNC_PULSE_START; i < SYNC_PULSE_END; ++i) {
 			double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
 			if (cycles < SYNC_PULSE_LENGTH / SYNC_TEST_TOLERANCE || cycles > SYNC_PULSE_LENGTH * SYNC_TEST_TOLERANCE) {
 				fprintf(stderr, "Sync cycle with upflank at %.6f was detected at %.0f cycles; misdetect?\n",
 					pulses[i].time, cycles);
 			}
 		}
+
+		// Compute the standard deviation (to check for uneven speeds).
+		double sum2 = 0.0;
+		for (int i = SYNC_PULSE_START; i < SYNC_PULSE_END; ++i) {
+			double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
+			sum2 += (cycles - SYNC_PULSE_LENGTH) * (cycles - SYNC_PULSE_LENGTH);
+		}
+		double stddev = sqrt(sum2 / (SYNC_PULSE_END - SYNC_PULSE_START - 1));
+		fprintf(stderr, "Sync pulse length standard deviation: %.2f cycles\n",
+			stddev);
 	}
 
 	std::vector<char> tap_data;
 	for (unsigned i = 0; i < pulses.size(); ++i) {
 		double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
 		int len = lrintf(cycles / TAP_RESOLUTION);
-		if (i > 15000 && (cycles < 100 || cycles > 800)) {
+		if (i > SYNC_PULSE_END && (cycles < 100 || cycles > 800)) {
 			fprintf(stderr, "Cycle with upflank at %.6f was detected at %.0f cycles; misdetect?\n",
 					pulses[i].time, cycles);
 		}
