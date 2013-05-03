@@ -4,12 +4,12 @@
 #include <vector>
 #include <assert.h>
 
+#include "common.h"
+
 using namespace std;
 
 #define LANCZOS_RADIUS 10
 #define RESOLUTION 256
-#define WAVE_FREQ 44100
-#define C64_FREQ 985248
 
 // Cutoff frequency of low-pass filter (must be max. WAVE_FREQ / 2 or you
 // will get aliasing)
@@ -121,37 +121,13 @@ static float filter_update(float in)
 	return out;
 }
 
-int main(int argc, char **argv)
+vector<float> synth(const vector<pulse> &pulses)
 {
 	make_table();
 
-	FILE *fp = fopen(argv[1], "rb");
-	fseek(fp, 14, SEEK_SET);
-
-	int x = 0;
-
-	while (!feof(fp)) {
-		int len = getc(fp);
-		int cycles;
-		if (len == 0) {
-			int a = getc(fp);
-			int b = getc(fp);
-			int c = getc(fp);
-			cycles = a | (b << 8) | (c << 16);
-		} else {
-			cycles = len * 8;
-		}
-		pulse p;
-		p.start = float(x) * WAVE_FREQ / C64_FREQ;
-		p.end = (float(x) + cycles * 0.5) * WAVE_FREQ / C64_FREQ;
-		pulses.push_back(p);
-		x += cycles;
-	}
-
-	int len_cycles = x;
-	int len_samples = int(ceil(float(len_cycles) * WAVE_FREQ / C64_FREQ));
+	int len_samples = int(ceil(pulses.back().start + (pulses.back().end - pulses.back().start) * 2));
 	
-	fprintf(stderr, "%d pulses, total %.2f seconds (%d samples)\n", pulses.size(), len_cycles / float(C64_FREQ), len_samples);
+	fprintf(stderr, "%d pulses, total %.2f seconds (%d samples)\n", pulses.size(), len_samples / float(WAVE_FREQ), len_samples);
 
 	int pulse_begin = 0;
 
@@ -190,9 +166,6 @@ int main(int argc, char **argv)
 	for (int i = len_samples; i --> 0; ) {
 		refiltered_samples[i] = filter_update(filtered_samples[i]);
 	}
-	for (int i = 0; i < len_samples; ++i) {
-		//printf("%f %f\n", samples[i], refiltered_samples[i]);
-		short s = lrintf(refiltered_samples[i] * 16384.0f);
-		fwrite(&s, 2, 1, stdout);
-	}
+
+	return refiltered_samples;
 }
