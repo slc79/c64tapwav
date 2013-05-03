@@ -34,7 +34,7 @@ int main(int argc, char **argv)
 
 	vector<float> samples = synth(pulses);
 
-	for (int i = 0; i < samples.size(); ++i) {
+	for (unsigned i = 0; i < samples.size(); ++i) {
 		//printf("%f %f\n", samples[i], refiltered_samples[i]);
 		short s = lrintf(samples[i] * 16384.0f);
 		fwrite(&s, 2, 1, stdout);

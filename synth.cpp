@@ -127,7 +127,7 @@ vector<float> synth(const vector<pulse> &pulses)
 
 	int len_samples = int(ceil(pulses.back().start + (pulses.back().end - pulses.back().start) * 2));
 	
-	fprintf(stderr, "%d pulses, total %.2f seconds (%d samples)\n", pulses.size(), len_samples / float(WAVE_FREQ), len_samples);
+	fprintf(stderr, "%d pulses, total %.2f seconds (%d samples)\n", int(pulses.size()), len_samples / float(WAVE_FREQ), len_samples);
 
 	int pulse_begin = 0;
 
