@@ -34,7 +34,7 @@ double sinc(double x)
 	}
 }
 
-#if 1
+#if 0
 double weight(double x)
 {
 	if (fabs(x) > LANCZOS_RADIUS) {
