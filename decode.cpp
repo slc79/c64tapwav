@@ -125,10 +125,31 @@ int main(int argc, char **argv)
 	// Find the flanks.
 	int last_bit = -1;
 	double last_upflank = -1;
-	int last_max_level = 0;
 	for (unsigned i = 0; i < pcm.size(); ++i) {
 		int bit = (pcm[i] > 0) ? 1 : 0;
-		if (bit == 1 && last_bit == 0 && last_max_level > HYSTERESIS_LIMIT) {
+		if (bit == 1 && last_bit == 0) {
+			// Check if we ever go up above HYSTERESIS_LIMIT before we dip down again.
+			bool true_pulse = false;
+			unsigned j;
+			int max_level_after = -32768;
+			for (j = i; j < pcm.size(); ++j) {
+				max_level_after = std::max<int>(max_level_after, pcm[j]);
+				if (pcm[j] < 0) break;
+				if (pcm[j] > HYSTERESIS_LIMIT) {
+					true_pulse = true;
+					break;
+				}
+			}
+
+			if (!true_pulse) {
+#if 0
+				fprintf(stderr, "Ignored up-flank at %.6f seconds due to hysteresis (%d < %d).\n",
+					double(i) / SAMPLE_RATE, max_level_after, HYSTERESIS_LIMIT);
+#endif
+				i = j;
+				continue;
+			} 
+
 			// up-flank!
 			double t = find_zerocrossing(pcm, i - 1) * (1.0 / SAMPLE_RATE);
 			if (last_upflank > 0) {
@@ -138,9 +159,7 @@ int main(int argc, char **argv)
 				pulses.push_back(p);
 			}
 			last_upflank = t;
-			last_max_level = 0;
 		}
-		last_max_level = std::max(last_max_level, abs(pcm[i]));
 		last_bit = bit;
 	}
 
