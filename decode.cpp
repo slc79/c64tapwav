@@ -15,7 +15,7 @@
 
 #define SYNC_PULSE_START 1000
 #define SYNC_PULSE_END 15000
-#define SYNC_PULSE_LENGTH 380.0
+#define SYNC_PULSE_LENGTH 378.0
 #define SYNC_TEST_TOLERANCE 1.10
 
 struct tap_header {
@@ -174,8 +174,8 @@ int main(int argc, char **argv)
 		}
 		double mean_length = C64_FREQUENCY * sum / (SYNC_PULSE_END - SYNC_PULSE_START);
 		calibration_factor = SYNC_PULSE_LENGTH / mean_length;
-		fprintf(stderr, "Calibrated sync pulse length: %.2f -> 380.0 (change %+.2f%%)\n",
-			mean_length, 100.0 * (calibration_factor - 1.0));
+		fprintf(stderr, "Calibrated sync pulse length: %.2f -> %.2f (change %+.2f%%)\n",
+			mean_length, SYNC_PULSE_LENGTH, 100.0 * (calibration_factor - 1.0));
 
 		// Check for pulses outside +/- 10% (sign of misdetection).
 		for (int i = SYNC_PULSE_START; i < SYNC_PULSE_END; ++i) {
