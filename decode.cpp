@@ -3,6 +3,7 @@
 #include <math.h>
 #include <unistd.h>
 #include <assert.h>
+#include <limits.h>
 #include <vector>
 #include <algorithm>
 
@@ -189,4 +190,20 @@ int main(int argc, char **argv)
 
 	fwrite(&hdr, sizeof(hdr), 1, stdout);
 	fwrite(tap_data.data(), tap_data.size(), 1, stdout);
+
+	// Output a debug raw file with pulse detection points.
+	fp = fopen("debug.raw", "wb");
+	short one = 32767;
+	short zero = 0;
+	unsigned pulsenum = 0;
+	for (unsigned i = 0; i < pcm.size(); ++i) {
+		unsigned next_pulse = (pulsenum >= pulses.size()) ? INT_MAX : int(pulses[pulsenum].time * SAMPLE_RATE);
+		if (i >= next_pulse) {
+			fwrite(&one, sizeof(one), 1, fp);
+			++pulsenum;
+		} else {
+			fwrite(&zero, sizeof(zero), 1, fp);
+		}
+	}
+	fclose(fp);
 }
