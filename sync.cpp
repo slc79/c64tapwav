@@ -149,7 +149,7 @@ int main(int argc, char **argv)
 
 		prev_hyp = hyp;
 	}
-	fprintf(stderr, "\b\b\b\b\b\b\b%7.2f", total_end / 44100.0);
+	fprintf(stderr, "\b\b\b\b\b\b\b%7.2f\n", total_end / 44100.0);
 
 	// best winner
 	double best_cost = HUGE_VAL;
