@@ -178,9 +178,11 @@ int main(int argc, char **argv)
 			stddev);
 	}
 
+	FILE *fp = fopen("cycles.plot", "w");
 	std::vector<char> tap_data;
 	for (unsigned i = 0; i < pulses.size(); ++i) {
 		double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
+		fprintf(fp, "%f %f\n", pulses[i].time, cycles);
 		int len = lrintf(cycles / TAP_RESOLUTION);
 		if (i > SYNC_PULSE_END && (cycles < 100 || cycles > 800)) {
 			fprintf(stderr, "Cycle with upflank at %.6f was detected at %.0f cycles; misdetect?\n",
@@ -196,6 +198,7 @@ int main(int argc, char **argv)
 			tap_data.push_back(overflow_len >> 16);
 		}
 	}
+	fclose(fp);
 
 	tap_header hdr;
 	memcpy(hdr.identifier, "C64-TAPE-RAW", 12);
