@@ -1,6 +1,6 @@
 CXXFLAGS=-O2 -g -Wall
 
-all: synth decode
+all: synth decode sync
 
 %.o: %.cpp
 	$(CXX) -MMD -MP $(CPPFLAGS) $(CXXFLAGS) -o $@ -c $<
@@ -16,5 +16,8 @@ decode: decode.o
 synth: synth.o synth_main.o
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
+sync: sync.o
+	$(CXX) -o $@ $^ $(LDFLAGS)
+
 clean:
-	$(RM) synth decode $(OBJS) $(DEPS)
+	$(RM) synth decode sync $(OBJS) $(DEPS)
