@@ -11,7 +11,8 @@
 #include <vector>
 #include <algorithm>
 
-#define LANCZOS_RADIUS 30
+#include "interpolate.h"
+
 #define BUFSIZE 4096
 
 struct stereo_sample {
@@ -31,68 +32,6 @@ inline short clip(int x)
 		return short(x);
 	}
 }
-
-double sinc(double x)
-{
-	if (fabs(x) < 1e-6) {
-		return 1.0f - fabs(x);
-	} else {
-		return sin(x) / x;
-	}
-}
-
-#if 0
-double weight(double x)
-{
-	if (fabs(x) > LANCZOS_RADIUS) {
-		return 0.0f;
-	}
-	return sinc(M_PI * x) * sinc(M_PI * x / LANCZOS_RADIUS);
-}
-
-double interpolate(const std::vector<double_stereo_sample> &pcm, double i)
-{
-	int lower = std::max<int>(ceil(i - LANCZOS_RADIUS), 0);
-	int upper = std::min<int>(floor(i + LANCZOS_RADIUS), pcm.size() - 1);
-	double sum = 0.0f;
-
-	for (int x = lower; x <= upper; ++x) {
-		sum += pcm[x].right * weight(i - x);
-	}
-	return sum;
-}
-#else
-double weight(double x)
-{
-	if (fabs(x) > 1.0f) {
-		return 0.0f;
-	}
-	return 1.0f - fabs(x);
-}
-
-inline double interpolate(const std::vector<double> &pcm, double i)
-{
-	int ii = int(i);
-	if (ii < 0 || ii >= int(pcm.size() - 1)) {
-		return 0.0;
-	}
-	double frac = i - ii;
-
-	return pcm[ii] + frac * (pcm[ii + 1] - pcm[ii]);
-}
-
-template<class T>
-inline double interpolate(const std::vector<T> &pcm, double i)
-{
-	int ii = int(i);
-	if (ii < 0 || ii >= int(pcm.size() - 1)) {
-		return 0.0;
-	}
-	double frac = i - ii;
-
-	return pcm[ii].right + frac * (pcm[ii + 1].right - pcm[ii].right);
-}
-#endif
 
 struct hypothesis {
 	int id;
@@ -171,11 +110,12 @@ int main(int argc, char **argv)
 		bases[h].prev = NULL;
 	}
 
+	fprintf(stderr, "Matching blocks... %7.2f", 0.0);
 	hypothesis *prev_hyp = bases;
 	size_t total_end = pcm.size();
 	//size_t total_end = 4410000;
 	for (unsigned i = 0; i < total_end; i += BUFSIZE) {
-		fprintf(stderr, "%.3f\n", i / 44100.0);
+		fprintf(stderr, "\b\b\b\b\b\b\b%7.2f", i / 44100.0);
 		size_t end = std::min<size_t>(i + BUFSIZE, total_end);
 	
 		hypothesis *hyp = new hypothesis[NUM_THEORIES];
@@ -186,7 +126,7 @@ int main(int argc, char **argv)
 			double d = delays[h];
 			for (unsigned s = i; s < end; ++s) {
 				double left = norm[s].left;
-				double right = interpolate(norm, s + d);
+				double right = linear_interpolate_right(norm, s + d);
 				double diff = (right - left) * (right - left);
 				sum += diff;
 			}
@@ -209,6 +149,7 @@ int main(int argc, char **argv)
 
 		prev_hyp = hyp;
 	}
+	fprintf(stderr, "\b\b\b\b\b\b\b%7.2f", total_end / 44100.0);
 
 	// best winner
 	double best_cost = HUGE_VAL;
@@ -236,14 +177,14 @@ int main(int argc, char **argv)
 	}
 	fclose(fp);
 
-	// readjust and write out
+	fprintf(stderr, "Stretching right channel to match left... %7.2f%%", 0.0);
 	double inv_sd = sqrt(2.0) / sqrt(var_left + var_right);
 	std::vector<stereo_sample> aligned_pcm;
 	std::vector<short> mono_pcm;
 	for (unsigned i = 0; i < total_end; ++i) {
-		double d = interpolate(best_path, i / double(BUFSIZE));
+		double d = linear_interpolate(best_path, i / double(BUFSIZE));
 		int left = pcm[i].left;
-		int right = interpolate(pcm, i + d);
+		int right = linear_interpolate_right(pcm, i + d);
 
 		stereo_sample ss;
 		ss.left = left;
@@ -251,7 +192,12 @@ int main(int argc, char **argv)
 		aligned_pcm.push_back(ss);
 
 		mono_pcm.push_back(clip(lrintf(inv_sd * 4096.0 * (left + right))));
+
+		if (i % 4096 == 0) {
+			fprintf(stderr, "\b\b\b\b\b\b\b\b%7.2f%%", 100.0 * i / total_end);
+		}
 	}
+	fprintf(stderr, "\b\b\b\b\b\b\b%7.2f%%\n", 100.0);
 
 	fprintf(stderr, "Writing realigned stereo channels to aligned.raw...\n");
 	fp = fopen("aligned.raw", "wb");

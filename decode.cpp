@@ -6,7 +6,8 @@
 #include <vector>
 #include <algorithm>
 
-#define LANCZOS_RADIUS 30
+#include "interpolate.h"
+
 #define BUFSIZE 4096
 #define HYSTERESIS_LIMIT 3000
 #define SAMPLE_RATE 44100
@@ -25,45 +26,6 @@ struct tap_header {
 	unsigned int data_len;
 };
 
-double sinc(double x)
-{
-	if (fabs(x) < 1e-6) {
-		return 1.0f - fabs(x);
-	} else {
-		return sin(x) / x;
-	}
-}
-
-#if 0
-double weight(double x)
-{
-	if (fabs(x) > LANCZOS_RADIUS) {
-		return 0.0f;
-	}
-	return sinc(M_PI * x) * sinc(M_PI * x / LANCZOS_RADIUS);
-}
-#else
-double weight(double x)
-{
-	if (fabs(x) > 1.0f) {
-		return 0.0f;
-	}
-	return 1.0f - fabs(x);
-}
-#endif
-
-double interpolate(const std::vector<short> &pcm, double i)
-{
-	int lower = std::max<int>(ceil(i - LANCZOS_RADIUS), 0);
-	int upper = std::min<int>(floor(i + LANCZOS_RADIUS), pcm.size() - 1);
-	double sum = 0.0f;
-
-	for (int x = lower; x <= upper; ++x) {
-		sum += pcm[x] * weight(i - x);
-	}
-	return sum;
-}
-	
 // between [x,x+1]
 double find_zerocrossing(const std::vector<short> &pcm, int x)
 {
@@ -81,7 +43,7 @@ double find_zerocrossing(const std::vector<short> &pcm, int x)
 	double upper = x + 1;
 	while (upper - lower > 1e-6) {
 		double mid = 0.5f * (upper + lower);
-		if (interpolate(pcm, mid) > 0) {
+		if (lanczos_interpolate(pcm, mid) > 0) {
 			upper = mid;
 		} else {
 			lower = mid;

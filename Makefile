@@ -1,4 +1,4 @@
-CXXFLAGS=-O2 -g -Wall
+CXXFLAGS=-O2 -ffast-math -g -Wall
 
 all: synth decode sync
 
