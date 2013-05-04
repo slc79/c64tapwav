@@ -36,11 +36,11 @@ double find_zerocrossing(const std::vector<short> &pcm, int x)
 		return x + 1;
 	}
 
-	assert(pcm[x + 1] > 0);
-	assert(pcm[x] < 0);
+	assert(pcm[x + 1] < 0);
+	assert(pcm[x] > 0);
 
-	double lower = x;
-	double upper = x + 1;
+	double upper = x;
+	double lower = x + 1;
 	while (upper - lower > 1e-6) {
 		double mid = 0.5f * (upper + lower);
 		if (lanczos_interpolate(pcm, mid) > 0) {
@@ -86,18 +86,18 @@ int main(int argc, char **argv)
 
 	// Find the flanks.
 	int last_bit = -1;
-	double last_upflank = -1;
+	double last_downflank = -1;
 	for (unsigned i = 0; i < pcm.size(); ++i) {
 		int bit = (pcm[i] > 0) ? 1 : 0;
-		if (bit == 1 && last_bit == 0) {
+		if (bit == 0 && last_bit == 1) {
 			// Check if we ever go up above HYSTERESIS_LIMIT before we dip down again.
 			bool true_pulse = false;
 			unsigned j;
-			int max_level_after = -32768;
+			int min_level_after = 32767;
 			for (j = i; j < pcm.size(); ++j) {
-				max_level_after = std::max<int>(max_level_after, pcm[j]);
-				if (pcm[j] < 0) break;
-				if (pcm[j] > HYSTERESIS_LIMIT) {
+				min_level_after = std::min<int>(min_level_after, pcm[j]);
+				if (pcm[j] > 0) break;
+				if (pcm[j] < -HYSTERESIS_LIMIT) {
 					true_pulse = true;
 					break;
 				}
@@ -105,22 +105,22 @@ int main(int argc, char **argv)
 
 			if (!true_pulse) {
 #if 0
-				fprintf(stderr, "Ignored up-flank at %.6f seconds due to hysteresis (%d < %d).\n",
-					double(i) / SAMPLE_RATE, max_level_after, HYSTERESIS_LIMIT);
+				fprintf(stderr, "Ignored down-flank at %.6f seconds due to hysteresis (%d < %d).\n",
+					double(i) / SAMPLE_RATE, -min_level_after, HYSTERESIS_LIMIT);
 #endif
 				i = j;
 				continue;
 			} 
 
-			// up-flank!
+			// down-flank!
 			double t = find_zerocrossing(pcm, i - 1) * (1.0 / SAMPLE_RATE);
-			if (last_upflank > 0) {
+			if (last_downflank > 0) {
 				pulse p;
 				p.time = t;
-				p.len = t - last_upflank;
+				p.len = t - last_downflank;
 				pulses.push_back(p);
 			}
-			last_upflank = t;
+			last_downflank = t;
 		}
 		last_bit = bit;
 	}
@@ -143,7 +143,7 @@ int main(int argc, char **argv)
 		for (int i = SYNC_PULSE_START; i < SYNC_PULSE_END; ++i) {
 			double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
 			if (cycles < SYNC_PULSE_LENGTH / SYNC_TEST_TOLERANCE || cycles > SYNC_PULSE_LENGTH * SYNC_TEST_TOLERANCE) {
-				fprintf(stderr, "Sync cycle with upflank at %.6f was detected at %.0f cycles; misdetect?\n",
+				fprintf(stderr, "Sync cycle with downflank at %.6f was detected at %.0f cycles; misdetect?\n",
 					pulses[i].time, cycles);
 			}
 		}
@@ -166,7 +166,7 @@ int main(int argc, char **argv)
 		fprintf(fp, "%f %f\n", pulses[i].time, cycles);
 		int len = lrintf(cycles / TAP_RESOLUTION);
 		if (i > SYNC_PULSE_END && (cycles < 100 || cycles > 800)) {
-			fprintf(stderr, "Cycle with upflank at %.6f was detected at %.0f cycles; misdetect?\n",
+			fprintf(stderr, "Cycle with downflank at %.6f was detected at %.0f cycles; misdetect?\n",
 					pulses[i].time, cycles);
 		}
 		if (len <= 255) {
