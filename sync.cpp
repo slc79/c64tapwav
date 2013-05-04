@@ -2,8 +2,8 @@
 // to find the most likely misalignment as it changes throughout the file.
 
 #define NUM_THEORIES 200
-#define THEORY_FROM -10.0  /* in samples */
-#define THEORY_TO 10.0  /* in samples */
+#define THEORY_FROM -20.0  /* in samples */
+#define THEORY_TO 20.0  /* in samples */
 #define SWITCH_COST 1000.0  /* pretty arbitrary */
 
 #include <stdio.h>
@@ -41,6 +41,7 @@ struct hypothesis {
 
 int main(int argc, char **argv)
 {
+	make_lanczos_weight_table();
 	std::vector<stereo_sample> pcm;
 
 	while (!feof(stdin)) {
@@ -113,7 +114,7 @@ int main(int argc, char **argv)
 	fprintf(stderr, "Matching blocks... %7.2f", 0.0);
 	hypothesis *prev_hyp = bases;
 	size_t total_end = pcm.size();
-	//size_t total_end = 4410000;
+	//size_t total_end = 441000;
 	for (unsigned i = 0; i < total_end; i += BUFSIZE) {
 		fprintf(stderr, "\b\b\b\b\b\b\b%7.2f", i / 44100.0);
 		size_t end = std::min<size_t>(i + BUFSIZE, total_end);
@@ -182,9 +183,9 @@ int main(int argc, char **argv)
 	std::vector<stereo_sample> aligned_pcm;
 	std::vector<short> mono_pcm;
 	for (unsigned i = 0; i < total_end; ++i) {
-		double d = linear_interpolate(best_path, i / double(BUFSIZE));
+		double d = lanczos_interpolate(best_path, i / double(BUFSIZE));
 		int left = pcm[i].left;
-		int right = linear_interpolate_right(pcm, i + d);
+		int right = lanczos_interpolate_right(pcm, i + d);
 
 		stereo_sample ss;
 		ss.left = left;

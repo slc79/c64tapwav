@@ -7,6 +7,7 @@
 #include <vector>
 
 #define LANCZOS_RADIUS 30
+#define LANCZOS_RESOLUTION 256
 
 inline double sinc(double x)
 {
@@ -25,6 +26,18 @@ inline double lanczos_weight(double x)
 	return sinc(M_PI * x) * sinc(M_PI * x / LANCZOS_RADIUS);
 }
 
+extern double lanczos_table[(LANCZOS_RADIUS * 2) * LANCZOS_RESOLUTION];
+void make_lanczos_weight_table();
+
+inline double lanczos_weight_table(double x)
+{
+	int table_id = lrintf((x + LANCZOS_RADIUS) * LANCZOS_RESOLUTION);
+	if (table_id < 0 || table_id >= (LANCZOS_RADIUS * 2) * LANCZOS_RESOLUTION) {
+		return 0.0;
+	}
+	return lanczos_table[table_id];
+}
+
 template<class T>
 inline double lanczos_interpolate(const std::vector<T> &pcm, double i)
 {
@@ -33,7 +46,7 @@ inline double lanczos_interpolate(const std::vector<T> &pcm, double i)
 	double sum = 0.0f;
 
 	for (int x = lower; x <= upper; ++x) {
-		sum += pcm[x] * lanczos_weight(i - x);
+		sum += pcm[x] * lanczos_weight_table(i - x);
 	}
 	return sum;
 }
@@ -46,7 +59,7 @@ inline double lanczos_interpolate_right(const std::vector<T> &pcm, double i)
 	double sum = 0.0f;
 
 	for (int x = lower; x <= upper; ++x) {
-		sum += pcm[x].right * lanczos_weight(i - x);
+		sum += pcm[x].right * lanczos_weight_table(i - x);
 	}
 	return sum;
 }

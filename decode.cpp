@@ -61,6 +61,7 @@ struct pulse {
 	
 int main(int argc, char **argv)
 {
+	make_lanczos_weight_table();
 	std::vector<short> pcm;
 
 	while (!feof(stdin)) {
