@@ -42,7 +42,7 @@ double find_zerocrossing(const std::vector<short> &pcm, int x)
 
 	double upper = x;
 	double lower = x + 1;
-	while (upper - lower > 1e-6) {
+	while (lower - upper > 1e-3) {
 		double mid = 0.5f * (upper + lower);
 		if (lanczos_interpolate(pcm, mid) > 0) {
 			upper = mid;
