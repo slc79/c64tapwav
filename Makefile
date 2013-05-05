@@ -1,11 +1,11 @@
 CXXFLAGS=-O2 -ffast-math -g -Wall
 
-all: synth decode sync
+all: synth decode sync level
 
 %.o: %.cpp
 	$(CXX) -MMD -MP $(CPPFLAGS) $(CXXFLAGS) -o $@ -c $<
 
-OBJS=decode.o synth.o synth_main.o interpolate.o sync.o
+OBJS=decode.o synth.o synth_main.o interpolate.o sync.o level.o
 
 DEPS=$(OBJS:.o=.d)
 -include $(DEPS)
@@ -19,5 +19,8 @@ synth: synth.o synth_main.o
 sync: interpolate.o sync.o
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
+level: level.o
+	$(CXX) -o $@ $^ $(LDFLAGS)
+
 clean:
-	$(RM) synth decode sync $(OBJS) $(DEPS)
+	$(RM) synth decode sync level $(OBJS) $(DEPS)
