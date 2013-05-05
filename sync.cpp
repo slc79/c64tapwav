@@ -182,17 +182,17 @@ int main(int argc, char **argv)
 	double inv_sd = sqrt(2.0) / sqrt(var_left + var_right);
 	std::vector<stereo_sample> aligned_pcm;
 	std::vector<short> mono_pcm;
+	aligned_pcm.resize(total_end);
+	mono_pcm.resize(total_end);
 	for (unsigned i = 0; i < total_end; ++i) {
 		double d = lanczos_interpolate(best_path, i / double(BUFSIZE));
 		int left = pcm[i].left;
 		int right = lanczos_interpolate_right(pcm, i + d);
 
-		stereo_sample ss;
-		ss.left = left;
-		ss.right = clip(right);
-		aligned_pcm.push_back(ss);
+		aligned_pcm[i].left = left;
+		aligned_pcm[i].right = clip(right);
 
-		mono_pcm.push_back(clip(lrintf(inv_sd * 4096.0 * (left + right))));
+		mono_pcm[i] = clip(lrintf(inv_sd * 4096.0 * (left + right)));
 
 		if (i % 4096 == 0) {
 			fprintf(stderr, "\b\b\b\b\b\b\b\b%7.2f%%", 100.0 * i / total_end);
