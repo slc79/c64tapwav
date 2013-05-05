@@ -18,8 +18,8 @@
 struct stereo_sample {
 	short left, right;
 };
-struct double_stereo_sample {
-	double left, right;
+struct float_stereo_sample {
+	float left, right;
 };
 
 inline short clip(int x)
@@ -75,7 +75,7 @@ int main(int argc, char **argv)
 	double inv_sd_left = 1.0 / sqrt(var_left);
 	double inv_sd_right = 1.0 / sqrt(var_right);
 
-	std::vector<double_stereo_sample> norm;
+	std::vector<float_stereo_sample> norm;
 	norm.resize(pcm.size());
 
 	for (unsigned i = 0; i < pcm.size(); ++i) {
@@ -102,7 +102,9 @@ int main(int argc, char **argv)
 #endif
 
 	double delays[NUM_THEORIES];
+	std::vector<hypothesis *> alloc_hypot;
 	hypothesis *bases = new hypothesis[NUM_THEORIES];
+	alloc_hypot.push_back(bases);
 
 	for (int h = 0; h < NUM_THEORIES; ++h) {
 		delays[h] = THEORY_FROM + h * (THEORY_TO - THEORY_FROM) / (NUM_THEORIES - 1);
@@ -120,6 +122,7 @@ int main(int argc, char **argv)
 		size_t end = std::min<size_t>(i + BUFSIZE, total_end);
 	
 		hypothesis *hyp = new hypothesis[NUM_THEORIES];
+		alloc_hypot.push_back(hyp);
 
 		// evaluate all hypotheses
 		for (int h = 0; h < NUM_THEORIES; ++h) {
@@ -177,6 +180,12 @@ int main(int argc, char **argv)
 		fprintf(fp, "%f %f\n", i * BUFSIZE / 44100.0, best_path[i]);
 	}
 	fclose(fp);
+	
+	// save some RAM
+	norm = std::vector<float_stereo_sample>();
+	for (unsigned i = 0; i < alloc_hypot.size(); ++i) {
+		delete[] alloc_hypot[i];
+	}
 
 	fprintf(stderr, "Stretching right channel to match left... %7.2f%%", 0.0);
 	double inv_sd = sqrt(2.0) / sqrt(var_left + var_right);
