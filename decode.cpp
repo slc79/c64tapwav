@@ -7,24 +7,17 @@
 #include <algorithm>
 
 #include "interpolate.h"
+#include "tap.h"
 
 #define BUFSIZE 4096
 #define HYSTERESIS_LIMIT 3000
 #define SAMPLE_RATE 44100
 #define C64_FREQUENCY 985248
-#define TAP_RESOLUTION 8
 
 #define SYNC_PULSE_START 1000
 #define SYNC_PULSE_END 15000
 #define SYNC_PULSE_LENGTH 378.0
 #define SYNC_TEST_TOLERANCE 1.10
-
-struct tap_header {
-	char identifier[12];
-	char version;
-	char reserved[3];
-	unsigned int data_len;
-};
 
 // between [x,x+1]
 double find_zerocrossing(const std::vector<short> &pcm, int x)
