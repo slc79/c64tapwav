@@ -1,6 +1,6 @@
-CXXFLAGS=-O2 -ffast-math -g -Wall
+CXXFLAGS=--std=gnu++0x -O2 -ffast-math -g -Wall
 
-all: synth decode sync level
+all: synth decode sync level cleaner
 
 %.o: %.cpp
 	$(CXX) -MMD -MP $(CPPFLAGS) $(CXXFLAGS) -o $@ -c $<
@@ -22,5 +22,8 @@ sync: interpolate.o sync.o
 level: level.o
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
+cleaner: cleaner.o
+	$(CXX) -o $@ $^ $(LDFLAGS)
+
 clean:
-	$(RM) synth decode sync level $(OBJS) $(DEPS)
+	$(RM) synth decode sync level cleaner $(OBJS) $(DEPS)
