@@ -31,11 +31,14 @@
 
 using namespace std;
 
-enum State { STATE_ROM_SYNC, STATE_ROM_LOADER, STATE_NOVA };
+enum State { STATE_ROM_SYNC, STATE_ROM_LOADER, STATE_NOVA, STATE_PAUSE };
 enum ROMPulseType { ROM_PULSE_TYPE_SHORT = 0, ROM_PULSE_MEDIUM, ROM_PULSE_LONG };
-enum NOVAPulseType { NOVA_PULSE_SHORT = 0, NOVA_PULSE_LONG, NOVA_PULSE_NONE };
+enum NOVAPulseType { NOVA_PULSE_SHORT = 0, NOVA_PULSE_LONG };
 
 static int total_alloc = 0;
+		
+static const double rom_lengths[] = { ROM_SHORT_PULSE_LENGTH, ROM_MEDIUM_PULSE_LENGTH, ROM_LONG_PULSE_LENGTH };
+static const double nova_lengths[] = { NOVA_SHORT_PULSE_LENGTH, NOVA_LONG_PULSE_LENGTH };
 
 struct Node {
 	Node() : prev_node(NULL), refcount(1) { ++total_alloc; }
@@ -128,58 +131,68 @@ double penalty(double length, double reference, double ratio, double reference_r
 	return ratio_penalty * ratio_penalty + 1e-4 * distance_penalty;
 }
 
+double pulse_penalty(int num_pulses_left)
+{
+	int num_pulses = 27136 - num_pulses_left;
+	return fabs(sqrt(27136.0) - sqrt(num_pulses));
+	// min(abs(prev->num_pulses_left - (27136 - 0x4f)), abs(prev->num_pulses_left));
+}
+
 void possibly_add_state(Node *node, vector<Node *> *next_states)
 {
+	assert(node->cost >= node->get_prev_node()->cost);
 	next_states->push_back(node);
 }
 		
 void extend_state(const Node *prev, double last_length, double length, double ratio, vector<Node *> *next_states)
 {
-	// If this pulse is really long, it means we could transition into another type.
-	if (length > 2000.0) {
+	// If this pulse is  long, it means we could transition into another type.
+	if (length > 700.0) {
 		double cost = 0.0;
 		if (prev->state == STATE_ROM_SYNC) {
 			// We don't really want to jump directly from sync to Novaload sync...
-			cost = min(fabs(0x4f - prev->num_pulses_left), fabs(27136 - prev->num_pulses_left));
+			cost = pulse_penalty(prev->num_pulses_left);
 		} else if (prev->state == STATE_ROM_LOADER) {
 			// Jumping in the middle of a bit is bad, too
 			cost = 50.0;
+		} else if (prev->state == STATE_NOVA) {
+			// is this too close to a long bit?
+			double prev_ref = nova_lengths[prev->last_nova_pulse_type];
+			double long_pulse_would_be = last_length * (NOVA_LONG_PULSE_LENGTH / prev_ref);
+			double ratio_penalty = max(2.5 - length / long_pulse_would_be, 0.0);
+			double distance_penalty = max(1000.0 - length, 0.0);
+			cost = ratio_penalty * ratio_penalty + 1e-4 * distance_penalty;
+		} else {
+			// Make sure that marking things as pauses are not _that_ painless...
+			cost = 1e-4 * max(1000.0 - length, 0.0);
 		}
 
-		// OK, so it could be Nova
-		{
-			Node *n = new Node;
-			n->cost = prev->cost + cost; // + 10.0;
-			n->set_prev_node(prev);
-			n->emit = length;
+		Node *n = new Node;
+		n->cost = prev->cost + cost; // + 10.0;
+		n->set_prev_node(prev);
+		n->emit = length;
 
-			n->state = STATE_NOVA;
-			n->last_nova_pulse_type = NOVA_PULSE_NONE;
-			possibly_add_state(n, next_states);
-		}
-		// or maybe the ROM loader
-		{
-			Node *n = new Node;
-			n->cost = prev->cost + cost; // + 10.0;
-			n->set_prev_node(prev);
-			n->emit = length;
-
-			n->state = STATE_ROM_SYNC;
-			n->num_pulses_left = 27136;
-			possibly_add_state(n, next_states);
-		}
-		return;  // hack
+		n->state = STATE_PAUSE;
+		possibly_add_state(n, next_states);
 	}
 
 	// If in STATE_ROM_SYNC, it's possible that this was another sync pulse.
-	if (prev->state == STATE_ROM_SYNC) {
+	if (prev->state == STATE_ROM_SYNC || prev->state == STATE_PAUSE) {
 		Node *n = new Node;
-		n->cost = prev->cost + penalty(length, SYNC_REFERENCE, ratio, 1.0);
+		if (prev->state == STATE_PAUSE) {
+			n->cost = prev->cost + penalty(length, SYNC_REFERENCE, 1.0, 1.0);
+		} else {
+			n->cost = prev->cost + penalty(length, SYNC_REFERENCE, ratio, 1.0);
+		}
 		n->set_prev_node(prev);
 		n->emit = SYNC_REFERENCE;
 
 		n->state = STATE_ROM_SYNC;	
-		n->num_pulses_left = prev->num_pulses_left - 1;
+		if (prev->state == STATE_PAUSE) {
+			n->num_pulses_left = 27136;
+		} else {
+			n->num_pulses_left = prev->num_pulses_left - 1;
+		}
 		possibly_add_state(n, next_states);
 	}
 
@@ -189,7 +202,7 @@ void extend_state(const Node *prev, double last_length, double length, double ra
 		Node *n = new Node;
 		n->cost = prev->cost +
 			penalty(length, ROM_LONG_PULSE_LENGTH, ratio, ROM_LONG_PULSE_LENGTH / SYNC_REFERENCE) +
-			0.1 * fabs(prev->num_pulses_left);
+			0.1 * pulse_penalty(prev->num_pulses_left);
 		n->set_prev_node(prev);
 		n->emit = ROM_LONG_PULSE_LENGTH;
 
@@ -199,23 +212,8 @@ void extend_state(const Node *prev, double last_length, double length, double ra
 		possibly_add_state(n, next_states);
 	}
 	
-	// If in STATE_ROM_SYNC, we could also seemingly transition into Nova data.
-	if (prev->state == STATE_ROM_SYNC) {
-		Node *n = new Node;
-		n->cost = prev->cost +
-			penalty(length, NOVA_SHORT_PULSE_LENGTH, ratio, NOVA_SHORT_PULSE_LENGTH / SYNC_REFERENCE) +
-			0.1 * fabs(prev->num_pulses_left);
-		n->set_prev_node(prev);
-		n->emit = NOVA_SHORT_PULSE_LENGTH;
-
-		n->state = STATE_NOVA;
-		n->last_nova_pulse_type = NOVA_PULSE_NONE;
-		possibly_add_state(n, next_states);
-	}
-
 	// If in ROM_LOADER, we could have short, medium or long pulses.
 	if (prev->state == STATE_ROM_LOADER) {
-		static const double lengths[] = { ROM_SHORT_PULSE_LENGTH, ROM_MEDIUM_PULSE_LENGTH, ROM_LONG_PULSE_LENGTH };
 		for (int pulse_type = ROM_PULSE_TYPE_SHORT; pulse_type <= ROM_PULSE_LONG; ++pulse_type) {
 
 			// Filter illegal ROM loader pairs.
@@ -236,9 +234,9 @@ void extend_state(const Node *prev, double last_length, double length, double ra
 
 			Node *n = new Node;
 			n->cost = prev->cost +
-				penalty(length, lengths[pulse_type], ratio, lengths[pulse_type] / lengths[prev->last_pulse_type]);
+				penalty(length, rom_lengths[pulse_type], ratio, rom_lengths[pulse_type] / rom_lengths[prev->last_pulse_type]);
 			n->set_prev_node(prev);
-			n->emit = lengths[pulse_type];
+			n->emit = rom_lengths[pulse_type];
 
 			if (prev->first_in_pair && (prev->last_pulse_type == ROM_PULSE_LONG && pulse_type == ROM_PULSE_TYPE_SHORT)) {
 				// (L,S) = end-of-data-marker
@@ -254,22 +252,22 @@ void extend_state(const Node *prev, double last_length, double length, double ra
 	}
 
 	// If in STATE_NOVA, we only have long and short pulses.
-	if (prev->state == STATE_NOVA) {  // hack
-		static const double lengths[] = { NOVA_SHORT_PULSE_LENGTH, NOVA_LONG_PULSE_LENGTH };
-		
+	if (prev->state == STATE_NOVA || prev->state == STATE_PAUSE || prev->state == STATE_ROM_SYNC) {
 		for (int pulse_type = NOVA_PULSE_SHORT; pulse_type <= NOVA_PULSE_LONG; ++pulse_type) {
-			
-
 			Node *n = new Node;
-			if (prev->last_nova_pulse_type == NOVA_PULSE_NONE) {
+			if (prev->state == STATE_PAUSE) {
+				// going from PAUSE to NOVA is only realistic after a pretty long pause.
+				n->cost = prev->cost + fabs(2000.0f - last_length) + penalty(length, nova_lengths[pulse_type], 1.0, 1.0);
+			} else if (prev->state == STATE_ROM_SYNC) {
 				n->cost = prev->cost +
-					penalty(length, lengths[pulse_type], length / NOVA_SHORT_PULSE_LENGTH, lengths[pulse_type] / NOVA_SHORT_PULSE_LENGTH);
+					penalty(length, NOVA_SHORT_PULSE_LENGTH, ratio, nova_lengths[pulse_type] / SYNC_REFERENCE) +
+					0.1 * pulse_penalty(prev->num_pulses_left);
 			} else {
 				n->cost = prev->cost +
-					penalty(length, lengths[pulse_type], ratio, lengths[pulse_type] / lengths[prev->last_nova_pulse_type]);
+					penalty(length, nova_lengths[pulse_type], ratio, nova_lengths[pulse_type] / nova_lengths[prev->last_nova_pulse_type]);
 			}
 			n->set_prev_node(prev);
-			n->emit = lengths[pulse_type];
+			n->emit = nova_lengths[pulse_type];
 
 			n->state = STATE_NOVA;
 			n->last_nova_pulse_type = NOVAPulseType(pulse_type);
@@ -285,8 +283,7 @@ int main(int argc, char **argv)
 	Node *start = new Node;
 	start->cost = 0.0;
 	start->emit = -1;
-	start->state = STATE_ROM_SYNC;
-	start->num_pulses_left = 27136;
+	start->state = STATE_PAUSE;
 
 	vector<Node *> states;
 	states.push_back(start);
@@ -295,17 +292,15 @@ int main(int argc, char **argv)
 
 	int pulse_num = 0;
 	int max_total_alloc = 0;
+	vector<pair<double, double>> original_pulses;
 	for ( ;; ) {
 		double time, length;
 		if (scanf("%lf %lf", &time, &length) != 2) {
 			break;
 		}
+		original_pulses.push_back(make_pair(time, length));
 
 		++pulse_num;
-
-		if (pulse_num % 1000 == 0) {
-			fprintf(stderr, "\rProcessing pulses... %d", pulse_num);
-		}	
 
 		max_total_alloc = max(total_alloc, max_total_alloc);
 		if (total_alloc > 20000000) {
@@ -346,20 +341,27 @@ int main(int argc, char **argv)
 			
 		// Prune unlikely next_states to save time and memory.
 		if (states.size() >= STATE_BREADTH) {
-			sort(states.begin(), states.end(), CompareByCost());
+			sort(states.begin(), states.end(), CompareByCost());  // nth element?
 			for (unsigned i = STATE_BREADTH; i < states.size(); ++i) {
 				states[i]->unref();
 			}
 			states.resize(STATE_BREADTH);
 		}
 		last_length = length;
+
+		if (pulse_num % 1000 == 0) {
+			fprintf(stderr, "\nProcessing pulses... %d [%5.2f,%7.2f]  ", pulse_num, time, length);
+			for (unsigned i = 0; i < 3 && i < states.size(); ++i) {
+				fprintf(stderr, " [%d:state=%d cost=%f]", i, states[i]->state, states[i]->cost);
+			}
+		}	
 	}
 
 	// Find the best final node.
 	const Node *best_node = NULL;
 	for (unsigned i = 0; i < states.size(); ++i) {
 		if (states[i]->state == STATE_ROM_SYNC) {
-			states[i]->cost += 0.1 * fabs(states[i]->num_pulses_left);
+			states[i]->cost += 0.1 * pulse_penalty(states[i]->num_pulses_left);
 		}
 
 		if (best_node == NULL || states[i]->cost < best_node->cost) {
@@ -384,7 +386,20 @@ int main(int argc, char **argv)
 		if (cleaned[i]->emit <= 0) {
 			continue;
 		}
-		printf("%d\n", cleaned[i]->emit);
+		int state;
+		if (cleaned[i]->state == STATE_ROM_SYNC) {
+			state = 0;
+		} else if (cleaned[i]->state == STATE_ROM_LOADER) {
+			state = 1 + cleaned[i]->last_pulse_type;
+		} else if (cleaned[i]->state == STATE_NOVA) {
+			state = 4 + cleaned[i]->last_nova_pulse_type;
+		} else if (cleaned[i]->state == STATE_PAUSE) {
+			state = 6;
+		} else {
+			assert(false);
+		}
+	//	printf("%d\n", cleaned[i]->emit);
+		printf("%f %f %d\n", original_pulses[i - 1].first, original_pulses[i - 1].second, state);
 	}
 
 	// output TAP file	
