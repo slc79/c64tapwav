@@ -26,13 +26,13 @@ inline double lanczos_weight(double x)
 	return sinc(M_PI * x) * sinc(M_PI * x / LANCZOS_RADIUS);
 }
 
-extern double lanczos_table[(LANCZOS_RADIUS * 2) * LANCZOS_RESOLUTION];
+extern double lanczos_table[LANCZOS_RADIUS * LANCZOS_RESOLUTION];
 void make_lanczos_weight_table();
 
 inline double lanczos_weight_table(double x)
 {
-	int table_id = lrintf((x + LANCZOS_RADIUS) * LANCZOS_RESOLUTION);
-	if (table_id < 0 || table_id >= (LANCZOS_RADIUS * 2) * LANCZOS_RESOLUTION) {
+	int table_id = lrintf(fabs(x) * LANCZOS_RESOLUTION);
+	if (table_id >= LANCZOS_RADIUS * LANCZOS_RESOLUTION) {
 		return 0.0;
 	}
 	return lanczos_table[table_id];
