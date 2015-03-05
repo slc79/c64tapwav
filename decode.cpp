@@ -15,7 +15,7 @@
 #define C64_FREQUENCY 985248
 
 #define SYNC_PULSE_START 1000
-#define SYNC_PULSE_END 15000
+#define SYNC_PULSE_END 20000
 #define SYNC_PULSE_LENGTH 378.0
 #define SYNC_TEST_TOLERANCE 1.10
 
@@ -50,6 +50,59 @@ struct pulse {
 	double time;  // in seconds from start
 	double len;   // in seconds
 };
+
+// Calibrate on the first ~25k pulses (skip a few, just to be sure).
+double calibrate(const std::vector<pulse> &pulses) {
+	if (pulses.size() < SYNC_PULSE_END) {
+		fprintf(stderr, "Too few pulses, not calibrating!\n");
+		return 1.0;
+	}
+
+	int sync_pulse_end = -1;
+	double sync_pulse_stddev = -1.0;
+
+	// Compute the standard deviation (to check for uneven speeds).
+	// If it suddenly skyrockets, we assume that sync ended earlier
+	// than we thought (it should be 25000 cycles), and that we should
+	// calibrate on fewer cycles.
+	for (int try_end : { 2000, 4000, 5000, 7500, 10000, 15000, SYNC_PULSE_END }) {
+		double sum2 = 0.0;
+		for (int i = SYNC_PULSE_START; i < try_end; ++i) {
+			double cycles = pulses[i].len * C64_FREQUENCY;
+			sum2 += (cycles - SYNC_PULSE_LENGTH) * (cycles - SYNC_PULSE_LENGTH);
+		}
+		double stddev = sqrt(sum2 / (try_end - SYNC_PULSE_START - 1));
+		if (sync_pulse_end != -1 && stddev > 5.0 && stddev / sync_pulse_stddev > 1.3) {
+			fprintf(stderr, "Stopping at %d sync pulses because standard deviation would be too big (%.2f cycles); shorter-than-usual trailer?\n",
+				sync_pulse_end, stddev);
+			break;
+		}
+		sync_pulse_end = try_end;
+		sync_pulse_stddev = stddev;
+	}
+	fprintf(stderr, "Sync pulse length standard deviation: %.2f cycles\n",
+		sync_pulse_stddev);
+
+	double sum = 0.0;
+	for (int i = SYNC_PULSE_START; i < sync_pulse_end; ++i) {
+		sum += pulses[i].len;
+	}
+	double mean_length = C64_FREQUENCY * sum / (sync_pulse_end - SYNC_PULSE_START);
+	double calibration_factor = SYNC_PULSE_LENGTH / mean_length;
+	fprintf(stderr, "Calibrated sync pulse length: %.2f -> %.2f (change %+.2f%%)\n",
+		mean_length, SYNC_PULSE_LENGTH, 100.0 * (calibration_factor - 1.0));
+
+	// Check for pulses outside +/- 10% (sign of misdetection).
+	for (int i = SYNC_PULSE_START; i < sync_pulse_end; ++i) {
+		double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
+		if (cycles < SYNC_PULSE_LENGTH / SYNC_TEST_TOLERANCE || cycles > SYNC_PULSE_LENGTH * SYNC_TEST_TOLERANCE) {
+			fprintf(stderr, "Sync cycle with downflank at %.6f was detected at %.0f cycles; misdetect?\n",
+				pulses[i].time, cycles);
+		}
+	}
+
+	return calibration_factor;
+}
 	
 int main(int argc, char **argv)
 {
@@ -115,39 +168,7 @@ int main(int argc, char **argv)
 		last_bit = bit;
 	}
 
-	// Calibrate on the first ~25k pulses (skip a few, just to be sure).
-	double calibration_factor = 1.0f;
-	if (pulses.size() < SYNC_PULSE_END) {
-		fprintf(stderr, "Too few pulses, not calibrating!\n");
-	} else {
-		double sum = 0.0;
-		for (int i = SYNC_PULSE_START; i < SYNC_PULSE_END; ++i) {
-			sum += pulses[i].len;
-		}
-		double mean_length = C64_FREQUENCY * sum / (SYNC_PULSE_END - SYNC_PULSE_START);
-		calibration_factor = SYNC_PULSE_LENGTH / mean_length;
-		fprintf(stderr, "Calibrated sync pulse length: %.2f -> %.2f (change %+.2f%%)\n",
-			mean_length, SYNC_PULSE_LENGTH, 100.0 * (calibration_factor - 1.0));
-
-		// Check for pulses outside +/- 10% (sign of misdetection).
-		for (int i = SYNC_PULSE_START; i < SYNC_PULSE_END; ++i) {
-			double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
-			if (cycles < SYNC_PULSE_LENGTH / SYNC_TEST_TOLERANCE || cycles > SYNC_PULSE_LENGTH * SYNC_TEST_TOLERANCE) {
-				fprintf(stderr, "Sync cycle with downflank at %.6f was detected at %.0f cycles; misdetect?\n",
-					pulses[i].time, cycles);
-			}
-		}
-
-		// Compute the standard deviation (to check for uneven speeds).
-		double sum2 = 0.0;
-		for (int i = SYNC_PULSE_START; i < SYNC_PULSE_END; ++i) {
-			double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
-			sum2 += (cycles - SYNC_PULSE_LENGTH) * (cycles - SYNC_PULSE_LENGTH);
-		}
-		double stddev = sqrt(sum2 / (SYNC_PULSE_END - SYNC_PULSE_START - 1));
-		fprintf(stderr, "Sync pulse length standard deviation: %.2f cycles\n",
-			stddev);
-	}
+	double calibration_factor = calibrate(pulses);
 
 	FILE *fp = fopen("cycles.plot", "w");
 	std::vector<char> tap_data;
