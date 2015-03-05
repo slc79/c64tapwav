@@ -1,4 +1,5 @@
 CXXFLAGS=--std=gnu++0x -O2 -ffast-math -g -Wall
+LDLIBS=-lavcodec -lavformat -lavutil -lswresample
 
 all: synth decode sync level cleaner
 
@@ -10,8 +11,8 @@ OBJS=decode.o synth.o synth_main.o interpolate.o sync.o level.o
 DEPS=$(OBJS:.o=.d)
 -include $(DEPS)
 
-decode: interpolate.o decode.o
-	$(CXX) -o $@ $^ $(LDFLAGS)
+decode: interpolate.o audioreader.o decode.o
+	$(CXX) -o $@ $^ $(LDLIBS) $(LDFLAGS)
 
 synth: synth.o synth_main.o
 	$(CXX) -o $@ $^ $(LDFLAGS)

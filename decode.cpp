@@ -6,6 +6,7 @@
 #include <vector>
 #include <algorithm>
 
+#include "audioreader.h"
 #include "interpolate.h"
 #include "tap.h"
 
@@ -55,14 +56,9 @@ int main(int argc, char **argv)
 {
 	make_lanczos_weight_table();
 	std::vector<short> pcm;
-
-	while (!feof(stdin)) {
-		short buf[BUFSIZE];
-		ssize_t ret = fread(buf, 2, BUFSIZE, stdin);
-		if (ret >= 0) {
-			pcm.insert(pcm.end(), buf, buf + ret);
-		}
-	}	
+	if (!read_audio_file(argv[1], &pcm)) {
+		exit(1);
+	}
 
 #if 0
 	for (int i = 0; i < LEN; ++i) {
