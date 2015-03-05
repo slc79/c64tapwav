@@ -88,7 +88,7 @@ int decode_packet(const char *filename, AVCodecContext *codec_ctx, SwrContext *s
 
 }  // namespace
 
-bool read_audio_file(const char *filename, std::vector<int16_t> *samples)
+bool read_audio_file(const char *filename, std::vector<int16_t> *samples, int *sample_rate)
 {
 	av_register_all();
 
@@ -189,6 +189,8 @@ bool read_audio_file(const char *filename, std::vector<int16_t> *samples)
 
 	// Convert any leftover samples from the converter.
 	convert_samples(swr, codec_ctx->sample_rate, nullptr, 0, samples);
+
+	*sample_rate = codec_ctx->sample_rate;
 
 	return true;
 }

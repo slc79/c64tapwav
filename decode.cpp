@@ -12,7 +12,6 @@
 
 #define BUFSIZE 4096
 #define HYSTERESIS_LIMIT 3000
-#define SAMPLE_RATE 44100
 #define C64_FREQUENCY 985248
 
 #define SYNC_PULSE_START 1000
@@ -56,7 +55,8 @@ int main(int argc, char **argv)
 {
 	make_lanczos_weight_table();
 	std::vector<short> pcm;
-	if (!read_audio_file(argv[1], &pcm)) {
+	int sample_rate;
+	if (!read_audio_file(argv[1], &pcm, &sample_rate)) {
 		exit(1);
 	}
 
@@ -96,14 +96,14 @@ int main(int argc, char **argv)
 			if (!true_pulse) {
 #if 0
 				fprintf(stderr, "Ignored down-flank at %.6f seconds due to hysteresis (%d < %d).\n",
-					double(i) / SAMPLE_RATE, -min_level_after, HYSTERESIS_LIMIT);
+					double(i) / sample_rate, -min_level_after, HYSTERESIS_LIMIT);
 #endif
 				i = j;
 				continue;
 			} 
 
 			// down-flank!
-			double t = find_zerocrossing(pcm, i - 1) * (1.0 / SAMPLE_RATE);
+			double t = find_zerocrossing(pcm, i - 1) * (1.0 / sample_rate);
 			if (last_downflank > 0) {
 				pulse p;
 				p.time = t;
@@ -186,7 +186,7 @@ int main(int argc, char **argv)
 	short zero = 0;
 	unsigned pulsenum = 0;
 	for (unsigned i = 0; i < pcm.size(); ++i) {
-		unsigned next_pulse = (pulsenum >= pulses.size()) ? INT_MAX : int(pulses[pulsenum].time * SAMPLE_RATE);
+		unsigned next_pulse = (pulsenum >= pulses.size()) ? INT_MAX : int(pulses[pulsenum].time * sample_rate);
 		if (i >= next_pulse) {
 			fwrite(&one, sizeof(one), 1, fp);
 			++pulsenum;
