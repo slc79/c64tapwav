@@ -48,9 +48,7 @@ static float d0, d1;
 static void filter_init(float cutoff_radians)
 {
 	float resonance = 1.0f / sqrt(2.0f);
-	float sn, cs;
-	sincosf(cutoff_radians, &sn, &cs);
-
+	float sn = sin(cutoff_radians), cs = cos(cutoff_radians);
 	float alpha = float(sn / (2 * resonance));
 
 	// coefficients for lowpass filter
@@ -61,12 +59,11 @@ static void filter_init(float cutoff_radians)
         a1 = -2 * cs;
         a2 = 1 - alpha;
 
-	float invA0 = 1.0f / a0;
-	b0 *= invA0;
-	b1 *= invA0;
-	b2 *= invA0;
-	a1 *= invA0;
-	a2 *= invA0;
+	b0 /= a0;
+	b1 /= a0;
+	b2 /= a0;
+	a1 /= a0;
+	a2 /= a0;
 
 	// reset filter delays
 	d0 = d1 = 0.0f;
