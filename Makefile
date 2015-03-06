@@ -1,4 +1,4 @@
-CXXFLAGS=--std=gnu++0x -O2 -ffast-math -g -Wall
+CXXFLAGS=--std=gnu++0x -O2 -fno-math-errno -g -Wall
 LDLIBS=-lavcodec -lavformat -lavutil -lswresample
 
 all: synth decode sync level cleaner
