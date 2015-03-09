@@ -20,7 +20,7 @@
 #define SYNC_TEST_TOLERANCE 1.10
 
 // between [x,x+1]
-double find_zerocrossing(const std::vector<short> &pcm, int x)
+double find_zerocrossing(const std::vector<float> &pcm, int x)
 {
 	if (pcm[x] == 0) {
 		return x;
@@ -107,7 +107,7 @@ double calibrate(const std::vector<pulse> &pulses) {
 int main(int argc, char **argv)
 {
 	make_lanczos_weight_table();
-	std::vector<short> pcm;
+	std::vector<float> pcm;
 	int sample_rate;
 	if (!read_audio_file(argv[1], &pcm, &sample_rate)) {
 		exit(1);

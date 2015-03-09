@@ -29,9 +29,9 @@ inline double lanczos_weight(double x)
 extern double lanczos_table[LANCZOS_RADIUS * LANCZOS_RESOLUTION];
 void make_lanczos_weight_table();
 
-inline double lanczos_weight_table(double x)
+inline double lanczos_weight_table(float x)
 {
-	int table_id = lrintf(fabs(x) * LANCZOS_RESOLUTION);
+	int table_id = lrintf(fabsf(x) * LANCZOS_RESOLUTION);
 	if (table_id >= LANCZOS_RADIUS * LANCZOS_RESOLUTION) {
 		return 0.0;
 	}

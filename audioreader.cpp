@@ -50,25 +50,25 @@ struct AVSampleDeleter {
 	}
 };
 
-void convert_samples(SwrContext *swr, int sample_rate, const uint8_t **data, int nb_samples, std::vector<int16_t> *samples)
+void convert_samples(SwrContext *swr, int sample_rate, const uint8_t **data, int nb_samples, std::vector<float> *samples)
 {
 	int max_out_samples = nb_samples + swr_get_delay(swr, sample_rate);
 	if (max_out_samples == 0) {
 		return;
 	}
 	uint8_t *output;
-	av_samples_alloc(&output, nullptr, 1, max_out_samples, AV_SAMPLE_FMT_S16, 0);
+	av_samples_alloc(&output, nullptr, 1, max_out_samples, AV_SAMPLE_FMT_FLT, 0);
 	std::unique_ptr<uint8_t, AVSampleDeleter> output_deleter(output);
 
 	int out_samples = swr_convert(swr, &output, max_out_samples, data, nb_samples);
 	if (out_samples > 0) {
-		const int16_t* start = reinterpret_cast<const int16_t *>(output);
-		const int16_t* end = start + out_samples;
+		const float* start = reinterpret_cast<const float *>(output);
+		const float* end = start + out_samples;
 		samples->insert(samples->end(), start, end);
 	}
 }
 
-int decode_packet(const char *filename, AVCodecContext *codec_ctx, SwrContext *swr, AVFrame *audio_frame, AVPacket *packet, int *got_frame, std::vector<int16_t> *samples)
+int decode_packet(const char *filename, AVCodecContext *codec_ctx, SwrContext *swr, AVFrame *audio_frame, AVPacket *packet, int *got_frame, std::vector<float> *samples)
 {
 	*got_frame = 0;
 	int len1 = avcodec_decode_audio4(codec_ctx, audio_frame, got_frame, packet);
@@ -88,7 +88,7 @@ int decode_packet(const char *filename, AVCodecContext *codec_ctx, SwrContext *s
 
 }  // namespace
 
-bool read_audio_file(const char *filename, std::vector<int16_t> *samples, int *sample_rate)
+bool read_audio_file(const char *filename, std::vector<float> *samples, int *sample_rate)
 {
 	av_register_all();
 
@@ -141,7 +141,7 @@ bool read_audio_file(const char *filename, std::vector<int16_t> *samples, int *s
 	}
 	SwrContext *swr = swr_alloc_set_opts(
 		nullptr,
-		AV_CH_LAYOUT_MONO, AV_SAMPLE_FMT_S16, codec_ctx->sample_rate,
+		AV_CH_LAYOUT_MONO, AV_SAMPLE_FMT_FLT, codec_ctx->sample_rate,
 		codec_ctx->channel_layout, codec_ctx->sample_fmt, codec_ctx->sample_rate,
 		0, nullptr);
 	std::unique_ptr<SwrContext, SwrContextDeleter> swr_deleter(swr);
