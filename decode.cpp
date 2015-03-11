@@ -164,6 +164,7 @@ void output_tap(const std::vector<pulse>& pulses, double calibration_factor)
 
 static struct option long_options[] = {
 	{"auto-level",       0,                 0, 'a' },
+	{"output-leveled",   0,                 0, 'A' },
 	{"no-calibrate",     0,                 0, 's' },
 	{"plot-cycles",      0,                 0, 'p' },
 	{"hysteresis-limit", required_argument, 0, 'l' },
