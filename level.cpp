@@ -6,9 +6,6 @@
 #include <vector>
 #include <algorithm>
 
-#define BUFSIZE 4096
-#define WAVE_FREQ 44100.0
-
 // The frequency to filter on, in Hertz. Larger values makes the
 // compressor react faster, but if it is too large, you'll
 // ruin the waveforms themselves.
@@ -26,21 +23,6 @@
 
 // 6dB/oct per round.
 #define FILTER_DEPTH 4
-
-struct stereo_sample {
-	short left, right;
-};
-
-inline short clip(int x)
-{
-	if (x < -32768) {
-		return x;
-	} else if (x > 32767) {
-		return 32767;
-	} else {
-		return short(x);
-	}
-}
 
 static float a1, a2, b0, b1, b2;
 static float d0, d1;
@@ -77,46 +59,38 @@ static float filter_update(float in)
 	return out;
 }
 
-int main(int argc, char **argv)
+std::vector<float> level_samples(const std::vector<float> &pcm, int sample_rate)
 {
-	std::vector<short> pcm;
-
-	while (!feof(stdin)) {
-		short buf[BUFSIZE];
-		ssize_t ret = fread(buf, sizeof(short), BUFSIZE, stdin);
-		if (ret >= 0) {
-			pcm.insert(pcm.end(), buf, buf + ret);
-		}
-	}
-	
 	// filter forwards, then backwards (perfect phase filtering)
-	std::vector<float> filtered_samples, refiltered_samples;
+	std::vector<float> filtered_samples, refiltered_samples, leveled_samples;
 	filtered_samples.resize(pcm.size());
 	refiltered_samples.resize(pcm.size());
+	leveled_samples.resize(pcm.size());
 
-	filter_init(M_PI * LPFILTER_FREQ / WAVE_FREQ);
+	filter_init(M_PI * LPFILTER_FREQ / sample_rate);
 	for (unsigned i = 0; i < pcm.size(); ++i) {
 		filtered_samples[i] = filter_update(fabs(pcm[i]));
 	}
-	filter_init(M_PI * LPFILTER_FREQ / WAVE_FREQ);
+	filter_init(M_PI * LPFILTER_FREQ / sample_rate);
 	for (unsigned i = pcm.size(); i --> 0; ) {
 		refiltered_samples[i] = filter_update(filtered_samples[i]);
 	}
 
 	for (int i = 1; i < FILTER_DEPTH; ++i) {
-		filter_init(M_PI * LPFILTER_FREQ / WAVE_FREQ);
+		filter_init(M_PI * LPFILTER_FREQ / sample_rate);
 		for (unsigned i = 0; i < pcm.size(); ++i) {
 			filtered_samples[i] = filter_update(refiltered_samples[i]);
 		}
-		filter_init(M_PI * LPFILTER_FREQ / WAVE_FREQ);
+		filter_init(M_PI * LPFILTER_FREQ / sample_rate);
 		for (unsigned i = pcm.size(); i --> 0; ) {
 			refiltered_samples[i] = filter_update(filtered_samples[i]);
 		}
 	}
 
 	for (unsigned i = 0; i < pcm.size(); ++i) {
-		float f = DAMPENING_FACTOR * std::max(refiltered_samples[i] * (1.0 / 32768.0), MIN_LEVEL);
-		short s = clip(lrintf(pcm[i] / f));
-		fwrite(&s, sizeof(s), 1, stdout);
+		float f = DAMPENING_FACTOR * std::max<float>(refiltered_samples[i], MIN_LEVEL);
+		leveled_samples[i] = pcm[i] / f;
 	}
+
+	return leveled_samples;
 }

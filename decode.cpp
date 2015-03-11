@@ -9,6 +9,7 @@
 
 #include "audioreader.h"
 #include "interpolate.h"
+#include "level.h"
 #include "tap.h"
 
 #define BUFSIZE 4096
@@ -29,6 +30,8 @@ static float crop_start = 0.0f, crop_end = HUGE_VAL;
 static float filter_coeff[NUM_FILTER_COEFF] = { 1.0f };  // The rest is filled with 0.
 static bool output_filtered = false;
 static bool quiet = false;
+static bool do_auto_level = false;
+static bool output_leveled = false;
 
 // between [x,x+1]
 double find_zerocrossing(const std::vector<float> &pcm, int x)
@@ -151,6 +154,7 @@ void output_tap(const std::vector<pulse>& pulses, double calibration_factor)
 }
 
 static struct option long_options[] = {
+	{"auto-level",       0,                 0, 'a' },
 	{"no-calibrate",     0,                 0, 's' },
 	{"plot-cycles",      0,                 0, 'p' },
 	{"hysteresis-limit", required_argument, 0, 'l' },
@@ -166,6 +170,8 @@ void help()
 {
 	fprintf(stderr, "decode [OPTIONS] AUDIO-FILE > TAP-FILE\n");
 	fprintf(stderr, "\n");
+	fprintf(stderr, "  -a, --auto-level             automatically adjust amplitude levels throughout the file\n");
+	fprintf(stderr, "  -A, --output-leveled         output leveled waveform to leveled.raw\n");
 	fprintf(stderr, "  -s, --no-calibrate           do not try to calibrate on sync pulse length\n");
 	fprintf(stderr, "  -p, --plot-cycles            output debugging info to cycles.plot\n");
 	fprintf(stderr, "  -l, --hysteresis-limit VAL   change amplitude threshold for ignoring pulses (0..32768)\n");
@@ -181,11 +187,19 @@ void parse_options(int argc, char **argv)
 {
 	for ( ;; ) {
 		int option_index = 0;
-		int c = getopt_long(argc, argv, "spl:f:Fc:qh", long_options, &option_index);
+		int c = getopt_long(argc, argv, "aAspl:f:Fc:qh", long_options, &option_index);
 		if (c == -1)
 			break;
 
 		switch (c) {
+		case 'a':
+			do_auto_level = true;
+			break;
+
+		case 'A':
+			output_leveled = true;
+			break;
+
 		case 's':
 			do_calibrate = false;
 			break;
@@ -346,6 +360,15 @@ int main(int argc, char **argv)
 
 	if (use_filter) {
 		pcm = do_filter(pcm, filter_coeff);
+	}
+
+	if (do_auto_level) {
+		pcm = level_samples(pcm, sample_rate);
+		if (output_leveled) {
+			FILE *fp = fopen("leveled.raw", "wb");
+			fwrite(pcm.data(), pcm.size() * sizeof(pcm[0]), 1, fp);
+			fclose(fp);
+		}
 	}
 
 #if 0
