@@ -19,7 +19,14 @@
 #define SYNC_PULSE_LENGTH 378.0
 #define SYNC_TEST_TOLERANCE 1.10
 
+// SPSA options
 #define NUM_FILTER_COEFF 32
+#define NUM_ITER 5000
+#define A NUM_ITER/10  // approx
+#define INITIAL_A 0.005 // A bit of trial and error...
+#define INITIAL_C 0.02  // This too.
+#define GAMMA 0.166
+#define ALPHA 1.0
 
 static float hysteresis_limit = 3000.0 / 32768.0;
 static bool do_calibrate = true;
@@ -32,6 +39,8 @@ static bool output_filtered = false;
 static bool quiet = false;
 static bool do_auto_level = false;
 static bool output_leveled = false;
+static std::vector<float> train_snap_points;
+static bool do_train = false;
 
 // between [x,x+1]
 double find_zerocrossing(const std::vector<float> &pcm, int x)
@@ -178,6 +187,8 @@ void help()
 	fprintf(stderr, "  -f, --filter C1:C2:C3:...    specify FIR filter (up to %d coefficients)\n", NUM_FILTER_COEFF);
 	fprintf(stderr, "  -F, --output-filtered        output filtered waveform to filtered.raw\n");
 	fprintf(stderr, "  -c, --crop START[:END]       use only the given part of the file\n");
+	fprintf(stderr, "  -t, --train LEN1:LEN2:...    train a filter for detecting any of the given number of cycles\n");
+	fprintf(stderr, "                               (implies --no-calibrate and --quiet unless overridden)\n");
 	fprintf(stderr, "  -q, --quiet                  suppress some informational messages\n");
 	fprintf(stderr, "  -h, --help                   display this help, then exit\n");
 	exit(1);
@@ -187,7 +198,7 @@ void parse_options(int argc, char **argv)
 {
 	for ( ;; ) {
 		int option_index = 0;
-		int c = getopt_long(argc, argv, "aAspl:f:Fc:qh", long_options, &option_index);
+		int c = getopt_long(argc, argv, "aAspl:f:Fc:t:qh", long_options, &option_index);
 		if (c == -1)
 			break;
 
@@ -213,11 +224,11 @@ void parse_options(int argc, char **argv)
 			break;
 
 		case 'f': {
-			const char *coeffstr = strtok(optarg, ":");
+			const char *coeffstr = strtok(optarg, ": ");
 			int coeff_index = 0;
 			while (coeff_index < NUM_FILTER_COEFF && coeffstr != NULL) {
 				filter_coeff[coeff_index++] = atof(coeffstr);
-				coeffstr = strtok(NULL, ":");
+				coeffstr = strtok(NULL, ": ");
 			}
 			use_filter = true;
 			break;
@@ -237,6 +248,20 @@ void parse_options(int argc, char **argv)
 				crop_end = atof(cropstr);
 			}
 			do_crop = true;
+			break;
+		}
+
+		case 't': {
+			const char *cyclestr = strtok(optarg, ":");
+			while (cyclestr != NULL) {
+				train_snap_points.push_back(atof(cyclestr));
+				cyclestr = strtok(NULL, ":");
+			}
+			do_train = true;
+
+			// Set reasonable defaults (can be overridden later on the command line).
+			do_calibrate = false;
+			quiet = true;
 			break;
 		}
 
@@ -343,6 +368,76 @@ void output_cycle_plot(const std::vector<pulse> &pulses, double calibration_fact
 	fclose(fp);
 }
 
+float eval_badness(const std::vector<pulse>& pulses, double calibration_factor)
+{
+	double sum_badness = 0.0;
+	for (unsigned i = 0; i < pulses.size(); ++i) {
+		double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
+		if (cycles > 2000.0) cycles = 2000.0;  // Don't make pauses arbitrarily bad.
+		double badness = (cycles - train_snap_points[0]) * (cycles - train_snap_points[0]);
+		for (unsigned j = 1; j < train_snap_points.size(); ++j) {
+			badness = std::min(badness, (cycles - train_snap_points[j]) * (cycles - train_snap_points[j]));
+		}
+		sum_badness += badness;
+	}
+	return sqrt(sum_badness / (pulses.size() - 1));
+}
+
+void spsa_train(std::vector<float> &pcm, int sample_rate)
+{
+	// Train!
+	float filter[NUM_FILTER_COEFF] = { 1.0f };  // The rest is filled with 0.
+
+	float start_c = INITIAL_C;
+	double best_badness = HUGE_VAL;
+
+	for (int n = 1; n < NUM_ITER; ++n) {
+		float a = INITIAL_A * pow(n + A, -ALPHA);
+		float c = start_c * pow(n, -GAMMA);
+
+		// find a random perturbation
+		float p[NUM_FILTER_COEFF];
+		float filter1[NUM_FILTER_COEFF], filter2[NUM_FILTER_COEFF];
+		for (int i = 0; i < NUM_FILTER_COEFF; ++i) {
+			p[i] = (rand() % 2) ? 1.0 : -1.0;
+			filter1[i] = std::max(std::min(filter[i] - c * p[i], 1.0f), -1.0f);
+			filter2[i] = std::max(std::min(filter[i] + c * p[i], 1.0f), -1.0f);
+		}
+
+		std::vector<pulse> pulses1 = detect_pulses(do_filter(pcm, filter1), sample_rate);
+		std::vector<pulse> pulses2 = detect_pulses(do_filter(pcm, filter2), sample_rate);
+		float badness1 = eval_badness(pulses1, 1.0);
+		float badness2 = eval_badness(pulses2, 1.0);
+
+		// Find the gradient estimator
+		float g[NUM_FILTER_COEFF];
+		for (int i = 0; i < NUM_FILTER_COEFF; ++i) {
+			g[i] = (badness2 - badness1) / (2.0 * c * p[i]);
+			filter[i] -= a * g[i];
+			filter[i] = std::max(std::min(filter[i], 1.0f), -1.0f);
+		}
+		if (badness2 < badness1) {
+			std::swap(badness1, badness2);
+			std::swap(filter1, filter2);
+			std::swap(pulses1, pulses2);
+		}
+		if (badness1 < best_badness) {
+			printf("\nNew best filter (badness=%f):", badness1);
+			for (int i = 0; i < NUM_FILTER_COEFF; ++i) {
+				printf(" %.5f", filter1[i]);
+			}
+			best_badness = badness1;
+			printf("\n");
+
+			if (output_cycles_plot) {
+				output_cycle_plot(pulses1, 1.0);
+			}
+		}
+		printf("%d ", n);
+		fflush(stdout);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	parse_options(argc, argv);
@@ -382,6 +477,11 @@ int main(int argc, char **argv)
 		printf("%d\n", in[i]);
 	}
 #endif
+
+	if (do_train) {
+		spsa_train(pcm, sample_rate);
+		exit(0);
+	}
 
 	std::vector<pulse> pulses = detect_pulses(pcm, sample_rate);
 
