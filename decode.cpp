@@ -3,6 +3,7 @@
 #include <math.h>
 #include <assert.h>
 #include <limits.h>
+#include <getopt.h>
 #include <vector>
 #include <algorithm>
 
@@ -11,13 +12,15 @@
 #include "tap.h"
 
 #define BUFSIZE 4096
-#define HYSTERESIS_LIMIT (3000/32768.0)
 #define C64_FREQUENCY 985248
-
 #define SYNC_PULSE_START 1000
 #define SYNC_PULSE_END 20000
 #define SYNC_PULSE_LENGTH 378.0
 #define SYNC_TEST_TOLERANCE 1.10
+
+static float hysteresis_limit = 3000.0 / 32768.0;
+static bool do_calibrate = true;
+static bool output_cycles_plot = false;
 
 // between [x,x+1]
 double find_zerocrossing(const std::vector<float> &pcm, int x)
@@ -134,13 +137,62 @@ void output_tap(const std::vector<pulse>& pulses, double calibration_factor)
 	fwrite(&hdr, sizeof(hdr), 1, stdout);
 	fwrite(tap_data.data(), tap_data.size(), 1, stdout);
 }
-	
+
+static struct option long_options[] = {
+	{"no-calibrate",     0,                 0, 's' },
+	{"plot-cycles",      0,                 0, 'p' },
+	{"hysteresis-limit", required_argument, 0, 'l' },
+	{"help",             0,                 0, 'h' },
+	{0,                  0,                 0, 0   }
+};
+
+void help()
+{
+	fprintf(stderr, "decode [OPTIONS] AUDIO-FILE > TAP-FILE\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "  -s, --no-calibrate           do not try to calibrate on sync pulse length\n");
+	fprintf(stderr, "  -p, --plot-cycles            output debugging info to cycles.plot\n");
+	fprintf(stderr, "  -l, --hysteresis-limit VAL   change amplitude threshold for ignoring pulses (0..32768)\n");
+	fprintf(stderr, "  -h, --help                   display this help, then exit\n");
+	exit(1);
+}
+
+void parse_options(int argc, char **argv)
+{
+	for ( ;; ) {
+		int option_index = 0;
+		int c = getopt_long(argc, argv, "spl:h", long_options, &option_index);
+		if (c == -1)
+			break;
+
+		switch (c) {
+		case 's':
+			do_calibrate = false;
+			break;
+
+		case 'p':
+			output_cycles_plot = true;
+			break;
+		case 'l':
+			hysteresis_limit = atof(optarg) / 32768.0;
+			break;
+
+		case 'h':
+		default:
+			help();
+			exit(1);
+		}
+	}
+}
+
 int main(int argc, char **argv)
 {
+	parse_options(argc, argv);
+
 	make_lanczos_weight_table();
 	std::vector<float> pcm;
 	int sample_rate;
-	if (!read_audio_file(argv[1], &pcm, &sample_rate)) {
+	if (!read_audio_file(argv[optind], &pcm, &sample_rate)) {
 		exit(1);
 	}
 
@@ -164,14 +216,14 @@ int main(int argc, char **argv)
 	for (unsigned i = 0; i < pcm.size(); ++i) {
 		int bit = (pcm[i] > 0) ? 1 : 0;
 		if (bit == 0 && last_bit == 1) {
-			// Check if we ever go up above HYSTERESIS_LIMIT before we dip down again.
+			// Check if we ever go up above <hysteresis_limit> before we dip down again.
 			bool true_pulse = false;
 			unsigned j;
 			int min_level_after = 32767;
 			for (j = i; j < pcm.size(); ++j) {
 				min_level_after = std::min<int>(min_level_after, pcm[j]);
 				if (pcm[j] > 0) break;
-				if (pcm[j] < -HYSTERESIS_LIMIT) {
+				if (pcm[j] < -hysteresis_limit) {
 					true_pulse = true;
 					break;
 				}
@@ -180,7 +232,7 @@ int main(int argc, char **argv)
 			if (!true_pulse) {
 #if 0
 				fprintf(stderr, "Ignored down-flank at %.6f seconds due to hysteresis (%d < %d).\n",
-					double(i) / sample_rate, -min_level_after, HYSTERESIS_LIMIT);
+					double(i) / sample_rate, -min_level_after, hysteresis_limit);
 #endif
 				i = j;
 				continue;
@@ -199,15 +251,19 @@ int main(int argc, char **argv)
 		last_bit = bit;
 	}
 
-	double calibration_factor = calibrate(pulses);
-
-	FILE *fp = fopen("cycles.plot", "w");
-	std::vector<char> tap_data;
-	for (unsigned i = 0; i < pulses.size(); ++i) {
-		double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
-		fprintf(fp, "%f %f\n", pulses[i].time, cycles);
+	double calibration_factor = 1.0;
+	if (do_calibrate) {
+		calibration_factor = calibrate(pulses);
 	}
-	fclose(fp);
+
+	if (output_cycles_plot) {
+		FILE *fp = fopen("cycles.plot", "w");
+		for (unsigned i = 0; i < pulses.size(); ++i) {
+			double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
+			fprintf(fp, "%f %f\n", pulses[i].time, cycles);
+		}
+		fclose(fp);
+	}
 
 	output_tap(pulses, calibration_factor);
 }
