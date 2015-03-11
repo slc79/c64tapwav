@@ -18,9 +18,14 @@
 #define SYNC_PULSE_LENGTH 378.0
 #define SYNC_TEST_TOLERANCE 1.10
 
+#define NUM_FILTER_COEFF 32
+
 static float hysteresis_limit = 3000.0 / 32768.0;
 static bool do_calibrate = true;
 static bool output_cycles_plot = false;
+static bool use_filter = false;
+static float filter_coeff[NUM_FILTER_COEFF] = { 1.0f };  // The rest is filled with 0.
+static bool output_filtered = false;
 
 // between [x,x+1]
 double find_zerocrossing(const std::vector<float> &pcm, int x)
@@ -142,6 +147,8 @@ static struct option long_options[] = {
 	{"no-calibrate",     0,                 0, 's' },
 	{"plot-cycles",      0,                 0, 'p' },
 	{"hysteresis-limit", required_argument, 0, 'l' },
+	{"filter",           required_argument, 0, 'f' },
+	{"output-filtered",  0,                 0, 'F' },
 	{"help",             0,                 0, 'h' },
 	{0,                  0,                 0, 0   }
 };
@@ -153,6 +160,8 @@ void help()
 	fprintf(stderr, "  -s, --no-calibrate           do not try to calibrate on sync pulse length\n");
 	fprintf(stderr, "  -p, --plot-cycles            output debugging info to cycles.plot\n");
 	fprintf(stderr, "  -l, --hysteresis-limit VAL   change amplitude threshold for ignoring pulses (0..32768)\n");
+	fprintf(stderr, "  -f, --filter C1:C2:C3:...    specify FIR filter (up to %d coefficients)\n", NUM_FILTER_COEFF);
+	fprintf(stderr, "  -F, --output-filtered        output filtered waveform to filtered.raw\n");
 	fprintf(stderr, "  -h, --help                   display this help, then exit\n");
 	exit(1);
 }
@@ -161,7 +170,7 @@ void parse_options(int argc, char **argv)
 {
 	for ( ;; ) {
 		int option_index = 0;
-		int c = getopt_long(argc, argv, "spl:h", long_options, &option_index);
+		int c = getopt_long(argc, argv, "spl:f:Fh", long_options, &option_index);
 		if (c == -1)
 			break;
 
@@ -177,12 +186,49 @@ void parse_options(int argc, char **argv)
 			hysteresis_limit = atof(optarg) / 32768.0;
 			break;
 
+		case 'f': {
+			const char *coeffstr = strtok(optarg, ":");
+			int coeff_index = 0;
+			while (coeff_index < NUM_FILTER_COEFF && coeffstr != NULL) {
+				filter_coeff[coeff_index++] = atof(coeffstr);
+				coeffstr = strtok(NULL, ":");
+			}
+			use_filter = true;
+			break;
+		}
+
+		case 'F':
+			output_filtered = true;
+			break;
+
 		case 'h':
 		default:
 			help();
 			exit(1);
 		}
 	}
+}
+
+// TODO: Support AVX here.
+std::vector<float> do_filter(const std::vector<float>& pcm, const float* filter)
+{
+	std::vector<float> filtered_pcm;
+	filtered_pcm.reserve(pcm.size());
+	for (unsigned i = NUM_FILTER_COEFF; i < pcm.size(); ++i) {
+		float s = 0.0f;
+		for (int j = 0; j < NUM_FILTER_COEFF; ++j) {
+			s += filter[j] * pcm[i - j];
+		}
+		filtered_pcm.push_back(s);
+	}
+
+	if (output_filtered) {
+		FILE *fp = fopen("filtered.raw", "wb");
+		fwrite(filtered_pcm.data(), filtered_pcm.size() * sizeof(filtered_pcm[0]), 1, fp);
+		fclose(fp);
+	}
+
+	return filtered_pcm;
 }
 
 int main(int argc, char **argv)
@@ -194,6 +240,10 @@ int main(int argc, char **argv)
 	int sample_rate;
 	if (!read_audio_file(argv[optind], &pcm, &sample_rate)) {
 		exit(1);
+	}
+
+	if (use_filter) {
+		pcm = do_filter(pcm, filter_coeff);
 	}
 
 #if 0
