@@ -231,34 +231,9 @@ std::vector<float> do_filter(const std::vector<float>& pcm, const float* filter)
 	return filtered_pcm;
 }
 
-int main(int argc, char **argv)
+std::vector<pulse> detect_pulses(const std::vector<float> &pcm, int sample_rate)
 {
-	parse_options(argc, argv);
-
-	make_lanczos_weight_table();
-	std::vector<float> pcm;
-	int sample_rate;
-	if (!read_audio_file(argv[optind], &pcm, &sample_rate)) {
-		exit(1);
-	}
-
-	if (use_filter) {
-		pcm = do_filter(pcm, filter_coeff);
-	}
-
-#if 0
-	for (int i = 0; i < LEN; ++i) {
-		in[i] += rand() % 10000;
-	}
-#endif
-
-#if 0
-	for (int i = 0; i < LEN; ++i) {
-		printf("%d\n", in[i]);
-	}
-#endif
-
-	std::vector<pulse> pulses;  // in seconds
+	std::vector<pulse> pulses;
 
 	// Find the flanks.
 	int last_bit = -1;
@@ -300,6 +275,37 @@ int main(int argc, char **argv)
 		}
 		last_bit = bit;
 	}
+	return pulses;
+}
+
+int main(int argc, char **argv)
+{
+	parse_options(argc, argv);
+
+	make_lanczos_weight_table();
+	std::vector<float> pcm;
+	int sample_rate;
+	if (!read_audio_file(argv[optind], &pcm, &sample_rate)) {
+		exit(1);
+	}
+
+	if (use_filter) {
+		pcm = do_filter(pcm, filter_coeff);
+	}
+
+#if 0
+	for (int i = 0; i < LEN; ++i) {
+		in[i] += rand() % 10000;
+	}
+#endif
+
+#if 0
+	for (int i = 0; i < LEN; ++i) {
+		printf("%d\n", in[i]);
+	}
+#endif
+
+	std::vector<pulse> pulses = detect_pulses(pcm, sample_rate);
 
 	double calibration_factor = 1.0;
 	if (do_calibrate) {
