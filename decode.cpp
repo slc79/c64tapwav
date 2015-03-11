@@ -319,6 +319,16 @@ std::vector<pulse> detect_pulses(const std::vector<float> &pcm, int sample_rate)
 	return pulses;
 }
 
+void output_cycle_plot(const std::vector<pulse> &pulses, double calibration_factor)
+{
+	FILE *fp = fopen("cycles.plot", "w");
+	for (unsigned i = 0; i < pulses.size(); ++i) {
+		double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
+		fprintf(fp, "%f %f\n", pulses[i].time, cycles);
+	}
+	fclose(fp);
+}
+
 int main(int argc, char **argv)
 {
 	parse_options(argc, argv);
@@ -358,12 +368,7 @@ int main(int argc, char **argv)
 	}
 
 	if (output_cycles_plot) {
-		FILE *fp = fopen("cycles.plot", "w");
-		for (unsigned i = 0; i < pulses.size(); ++i) {
-			double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
-			fprintf(fp, "%f %f\n", pulses[i].time, cycles);
-		}
-		fclose(fp);
+		output_cycle_plot(pulses, calibration_factor);
 	}
 
 	output_tap(pulses, calibration_factor);
