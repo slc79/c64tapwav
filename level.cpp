@@ -11,12 +11,6 @@
 // ruin the waveforms themselves.
 #define LPFILTER_FREQ 50.0
 
-// The minimum estimated sound level at any given point.
-// If you decrease this, you'll be able to amplify really silent signals
-// by more, but you'll also increase the level of silent (ie. noise-only) segments,
-// possibly caused misdetected pulses in these segments.
-#define MIN_LEVEL 0.05
-
 // A final scalar to get the audio within approximately the right range.
 // Increase to _lower_ overall volume.
 #define DAMPENING_FACTOR 5.0
@@ -59,7 +53,7 @@ static float filter_update(float in)
 	return out;
 }
 
-std::vector<float> level_samples(const std::vector<float> &pcm, int sample_rate)
+std::vector<float> level_samples(const std::vector<float> &pcm, float min_level, int sample_rate)
 {
 	// filter forwards, then backwards (perfect phase filtering)
 	std::vector<float> filtered_samples, refiltered_samples, leveled_samples;
@@ -88,7 +82,7 @@ std::vector<float> level_samples(const std::vector<float> &pcm, int sample_rate)
 	}
 
 	for (unsigned i = 0; i < pcm.size(); ++i) {
-		float f = DAMPENING_FACTOR * std::max<float>(refiltered_samples[i], MIN_LEVEL);
+		float f = DAMPENING_FACTOR * std::max<float>(refiltered_samples[i], min_level);
 		leveled_samples[i] = pcm[i] / f;
 	}
 

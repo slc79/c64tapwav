@@ -42,6 +42,12 @@ static bool output_leveled = false;
 static std::vector<float> train_snap_points;
 static bool do_train = false;
 
+// The minimum estimated sound level (for do_auto_level) at any given point.
+// If you decrease this, you'll be able to amplify really silent signals
+// by more, but you'll also increase the level of silent (ie. noise-only) segments,
+// possibly caused misdetected pulses in these segments.
+static float min_level = 0.05f;
+
 // between [x,x+1]
 double find_zerocrossing(const std::vector<float> &pcm, int x)
 {
@@ -182,6 +188,7 @@ void help()
 	fprintf(stderr, "\n");
 	fprintf(stderr, "  -a, --auto-level             automatically adjust amplitude levels throughout the file\n");
 	fprintf(stderr, "  -A, --output-leveled         output leveled waveform to leveled.raw\n");
+	fprintf(stderr, "  -m, --min-level              minimum estimated sound level (0..32768) for --auto-level\n");
 	fprintf(stderr, "  -s, --no-calibrate           do not try to calibrate on sync pulse length\n");
 	fprintf(stderr, "  -p, --plot-cycles            output debugging info to cycles.plot\n");
 	fprintf(stderr, "  -l, --hysteresis-limit VAL   change amplitude threshold for ignoring pulses (0..32768)\n");
@@ -199,7 +206,7 @@ void parse_options(int argc, char **argv)
 {
 	for ( ;; ) {
 		int option_index = 0;
-		int c = getopt_long(argc, argv, "aAspl:f:Fc:t:qh", long_options, &option_index);
+		int c = getopt_long(argc, argv, "aAm:spl:f:Fc:t:qh", long_options, &option_index);
 		if (c == -1)
 			break;
 
@@ -210,6 +217,10 @@ void parse_options(int argc, char **argv)
 
 		case 'A':
 			output_leveled = true;
+			break;
+
+		case 'm':
+			min_level = atof(optarg) / 32768.0;
 			break;
 
 		case 's':
@@ -459,7 +470,7 @@ int main(int argc, char **argv)
 	}
 
 	if (do_auto_level) {
-		pcm = level_samples(pcm, sample_rate);
+		pcm = level_samples(pcm, min_level, sample_rate);
 		if (output_leveled) {
 			FILE *fp = fopen("leveled.raw", "wb");
 			fwrite(pcm.data(), pcm.size() * sizeof(pcm[0]), 1, fp);
