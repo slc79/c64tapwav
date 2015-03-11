@@ -26,6 +26,7 @@ static bool output_cycles_plot = false;
 static bool use_filter = false;
 static float filter_coeff[NUM_FILTER_COEFF] = { 1.0f };  // The rest is filled with 0.
 static bool output_filtered = false;
+static bool quiet = false;
 
 // between [x,x+1]
 double find_zerocrossing(const std::vector<float> &pcm, int x)
@@ -88,8 +89,10 @@ double calibrate(const std::vector<pulse> &pulses) {
 		sync_pulse_end = try_end;
 		sync_pulse_stddev = stddev;
 	}
-	fprintf(stderr, "Sync pulse length standard deviation: %.2f cycles\n",
-		sync_pulse_stddev);
+	if (!quiet) {
+		fprintf(stderr, "Sync pulse length standard deviation: %.2f cycles\n",
+			sync_pulse_stddev);
+	}
 
 	double sum = 0.0;
 	for (int i = SYNC_PULSE_START; i < sync_pulse_end; ++i) {
@@ -97,8 +100,10 @@ double calibrate(const std::vector<pulse> &pulses) {
 	}
 	double mean_length = C64_FREQUENCY * sum / (sync_pulse_end - SYNC_PULSE_START);
 	double calibration_factor = SYNC_PULSE_LENGTH / mean_length;
-	fprintf(stderr, "Calibrated sync pulse length: %.2f -> %.2f (change %+.2f%%)\n",
-		mean_length, SYNC_PULSE_LENGTH, 100.0 * (calibration_factor - 1.0));
+	if (!quiet) {
+		fprintf(stderr, "Calibrated sync pulse length: %.2f -> %.2f (change %+.2f%%)\n",
+			mean_length, SYNC_PULSE_LENGTH, 100.0 * (calibration_factor - 1.0));
+	}
 
 	// Check for pulses outside +/- 10% (sign of misdetection).
 	for (int i = SYNC_PULSE_START; i < sync_pulse_end; ++i) {
@@ -149,6 +154,7 @@ static struct option long_options[] = {
 	{"hysteresis-limit", required_argument, 0, 'l' },
 	{"filter",           required_argument, 0, 'f' },
 	{"output-filtered",  0,                 0, 'F' },
+	{"quiet",            0,                 0, 'q' },
 	{"help",             0,                 0, 'h' },
 	{0,                  0,                 0, 0   }
 };
@@ -162,6 +168,7 @@ void help()
 	fprintf(stderr, "  -l, --hysteresis-limit VAL   change amplitude threshold for ignoring pulses (0..32768)\n");
 	fprintf(stderr, "  -f, --filter C1:C2:C3:...    specify FIR filter (up to %d coefficients)\n", NUM_FILTER_COEFF);
 	fprintf(stderr, "  -F, --output-filtered        output filtered waveform to filtered.raw\n");
+	fprintf(stderr, "  -q, --quiet                  suppress some informational messages\n");
 	fprintf(stderr, "  -h, --help                   display this help, then exit\n");
 	exit(1);
 }
@@ -170,7 +177,7 @@ void parse_options(int argc, char **argv)
 {
 	for ( ;; ) {
 		int option_index = 0;
-		int c = getopt_long(argc, argv, "spl:f:Fh", long_options, &option_index);
+		int c = getopt_long(argc, argv, "spl:f:Fqh", long_options, &option_index);
 		if (c == -1)
 			break;
 
@@ -182,6 +189,7 @@ void parse_options(int argc, char **argv)
 		case 'p':
 			output_cycles_plot = true;
 			break;
+
 		case 'l':
 			hysteresis_limit = atof(optarg) / 32768.0;
 			break;
@@ -199,6 +207,10 @@ void parse_options(int argc, char **argv)
 
 		case 'F':
 			output_filtered = true;
+			break;
+
+		case 'q':
+			quiet = true;
 			break;
 
 		case 'h':
