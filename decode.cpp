@@ -103,6 +103,37 @@ double calibrate(const std::vector<pulse> &pulses) {
 
 	return calibration_factor;
 }
+
+void output_tap(const std::vector<pulse>& pulses, double calibration_factor)
+{
+	std::vector<char> tap_data;
+	for (unsigned i = 0; i < pulses.size(); ++i) {
+		double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
+		int len = lrintf(cycles / TAP_RESOLUTION);
+		if (i > SYNC_PULSE_END && (cycles < 100 || cycles > 800)) {
+			fprintf(stderr, "Cycle with downflank at %.6f was detected at %.0f cycles; misdetect?\n",
+					pulses[i].time, cycles);
+		}
+		if (len <= 255) {
+			tap_data.push_back(len);
+		} else {
+			int overflow_len = lrintf(cycles);
+			tap_data.push_back(0);
+			tap_data.push_back(overflow_len & 0xff);
+			tap_data.push_back((overflow_len >> 8) & 0xff);
+			tap_data.push_back(overflow_len >> 16);
+		}
+	}
+
+	tap_header hdr;
+	memcpy(hdr.identifier, "C64-TAPE-RAW", 12);
+	hdr.version = 1;
+	hdr.reserved[0] = hdr.reserved[1] = hdr.reserved[2] = 0;
+	hdr.data_len = tap_data.size();
+
+	fwrite(&hdr, sizeof(hdr), 1, stdout);
+	fwrite(tap_data.data(), tap_data.size(), 1, stdout);
+}
 	
 int main(int argc, char **argv)
 {
@@ -175,45 +206,8 @@ int main(int argc, char **argv)
 	for (unsigned i = 0; i < pulses.size(); ++i) {
 		double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
 		fprintf(fp, "%f %f\n", pulses[i].time, cycles);
-		int len = lrintf(cycles / TAP_RESOLUTION);
-		if (i > SYNC_PULSE_END && (cycles < 100 || cycles > 800)) {
-			fprintf(stderr, "Cycle with downflank at %.6f was detected at %.0f cycles; misdetect?\n",
-					pulses[i].time, cycles);
-		}
-		if (len <= 255) {
-			tap_data.push_back(len);
-		} else {
-			int overflow_len = lrintf(cycles);
-			tap_data.push_back(0);
-			tap_data.push_back(overflow_len & 0xff);
-			tap_data.push_back((overflow_len >> 8) & 0xff);
-			tap_data.push_back(overflow_len >> 16);
-		}
 	}
 	fclose(fp);
 
-	tap_header hdr;
-	memcpy(hdr.identifier, "C64-TAPE-RAW", 12);
-	hdr.version = 1;
-	hdr.reserved[0] = hdr.reserved[1] = hdr.reserved[2] = 0;
-	hdr.data_len = tap_data.size();
-
-	fwrite(&hdr, sizeof(hdr), 1, stdout);
-	fwrite(tap_data.data(), tap_data.size(), 1, stdout);
-
-	// Output a debug raw file with pulse detection points.
-	fp = fopen("debug.raw", "wb");
-	short one = 32767;
-	short zero = 0;
-	unsigned pulsenum = 0;
-	for (unsigned i = 0; i < pcm.size(); ++i) {
-		unsigned next_pulse = (pulsenum >= pulses.size()) ? INT_MAX : int(pulses[pulsenum].time * sample_rate);
-		if (i >= next_pulse) {
-			fwrite(&one, sizeof(one), 1, fp);
-			++pulsenum;
-		} else {
-			fwrite(&zero, sizeof(zero), 1, fp);
-		}
-	}
-	fclose(fp);
+	output_tap(pulses, calibration_factor);
 }
