@@ -11,7 +11,7 @@
 #include "tap.h"
 
 #define BUFSIZE 4096
-#define HYSTERESIS_LIMIT 3000
+#define HYSTERESIS_LIMIT (3000/32768.0)
 #define C64_FREQUENCY 985248
 
 #define SYNC_PULSE_START 1000
