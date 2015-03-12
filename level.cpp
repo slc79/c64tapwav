@@ -6,6 +6,8 @@
 #include <vector>
 #include <algorithm>
 
+#include "filter.h"
+
 // The frequency to filter on, in Hertz. Larger values makes the
 // compressor react faster, but if it is too large, you'll
 // ruin the waveforms themselves.
@@ -18,41 +20,6 @@
 // 6dB/oct per round.
 #define FILTER_DEPTH 4
 
-static float a1, a2, b0, b1, b2;
-static float d0, d1;
-
-static void filter_init(float cutoff_radians)
-{
-	float resonance = 1.0f / sqrt(2.0f);
-	float sn = sin(cutoff_radians), cs = cos(cutoff_radians);
-	float alpha = float(sn / (2 * resonance));
-
-	// coefficients for lowpass filter
-        float a0 = 1 + alpha;
-	b0 = (1 - cs) * 0.5f;
-	b1 = 1 - cs;
-	b2 = b0;
-        a1 = -2 * cs;
-        a2 = 1 - alpha;
-
-	b0 /= a0;
-	b1 /= a0;
-	b2 /= a0;
-	a1 /= a0;
-	a2 /= a0;
-
-	// reset filter delays
-	d0 = d1 = 0.0f;
-}
-
-static float filter_update(float in)
-{
-	float out = b0*in + d0;
-	d0 = b1 * in - a1 * out + d1;
-	d1 = b2 * in - a2 * out;
-	return out;
-}
-
 std::vector<float> level_samples(const std::vector<float> &pcm, float min_level, int sample_rate)
 {
 	// filter forwards, then backwards (perfect phase filtering)
@@ -61,23 +28,23 @@ std::vector<float> level_samples(const std::vector<float> &pcm, float min_level,
 	refiltered_samples.resize(pcm.size());
 	leveled_samples.resize(pcm.size());
 
-	filter_init(M_PI * LPFILTER_FREQ / sample_rate);
+	Filter filter = Filter::lpf(M_PI * LPFILTER_FREQ / sample_rate);
 	for (unsigned i = 0; i < pcm.size(); ++i) {
-		filtered_samples[i] = filter_update(fabs(pcm[i]));
+		filtered_samples[i] = filter.update(fabs(pcm[i]));
 	}
-	filter_init(M_PI * LPFILTER_FREQ / sample_rate);
+	filter.reset();
 	for (unsigned i = pcm.size(); i --> 0; ) {
-		refiltered_samples[i] = filter_update(filtered_samples[i]);
+		refiltered_samples[i] = filter.update(filtered_samples[i]);
 	}
 
 	for (int i = 1; i < FILTER_DEPTH; ++i) {
-		filter_init(M_PI * LPFILTER_FREQ / sample_rate);
+		filter.reset();
 		for (unsigned i = 0; i < pcm.size(); ++i) {
-			filtered_samples[i] = filter_update(refiltered_samples[i]);
+			filtered_samples[i] = filter.update(refiltered_samples[i]);
 		}
-		filter_init(M_PI * LPFILTER_FREQ / sample_rate);
+		filter.reset();
 		for (unsigned i = pcm.size(); i --> 0; ) {
-			refiltered_samples[i] = filter_update(filtered_samples[i]);
+			refiltered_samples[i] = filter.update(filtered_samples[i]);
 		}
 	}
 
