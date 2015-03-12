@@ -2,6 +2,8 @@
 
 extern "C" {
 
+#define __STDC_CONSTANT_MACROS
+
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswresample/swresample.h>
@@ -153,8 +155,13 @@ bool read_audio_file(const char *filename, std::vector<float> *samples, int *sam
 	}
 
 	AVPacket packet;
-	AVFrame* audio_frame = av_frame_alloc();
+#if (LIBAVCODEC_VERSION_MAJOR >= 55)
+	AVFrame *audio_frame = av_frame_alloc();
 	std::unique_ptr<AVFrame, AVFrameDeleter> audio_frame_deleter(audio_frame);
+#else
+	AVFrame frame_holder {};
+	AVFrame *audio_frame = &frame_holder;
+#endif
 	while (av_read_frame(format_ctx, &packet) >= 0) {
 		std::unique_ptr<AVPacket, AVPacketDeleter> av_packet_deleter(&packet);
 
