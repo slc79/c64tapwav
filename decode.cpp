@@ -397,7 +397,6 @@ float eval_badness(const std::vector<pulse>& pulses, double calibration_factor)
 
 void spsa_train(std::vector<float> &pcm, int sample_rate)
 {
-	// Train!
 	float filter[NUM_FILTER_COEFF] = { 1.0f };  // The rest is filled with 0.
 
 	float start_c = INITIAL_C;
