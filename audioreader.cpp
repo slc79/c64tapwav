@@ -6,7 +6,6 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libswresample/swresample.h>
 #include <libavutil/avutil.h>
-#include <libavutil/frame.h>
 
 }
 
@@ -24,7 +23,8 @@ struct AVFormatCloserAndDeleter {
 
 struct AVCodecContextDeleter {
 	void operator() (AVCodecContext *ctx) {
-		avcodec_free_context(&ctx);
+		avcodec_close(ctx);
+		av_freep(&ctx);
 	}
 };
 
