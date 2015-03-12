@@ -380,22 +380,79 @@ void output_cycle_plot(const std::vector<pulse> &pulses, double calibration_fact
 	fclose(fp);
 }
 
+std::pair<int, double> find_closest_point(double x, const std::vector<float> &points)
+{
+	int best_point = 0;
+	double best_dist = (x - points[0]) * (x - points[0]);
+	for (unsigned j = 1; j < train_snap_points.size(); ++j) {
+		double dist = (x - points[j]) * (x - points[j]);
+		if (dist < best_dist) {
+			best_point = j;
+			best_dist = dist;
+		}
+	}
+	return std::make_pair(best_point, best_dist);
+}
+
 float eval_badness(const std::vector<pulse>& pulses, double calibration_factor)
 {
 	double sum_badness = 0.0;
 	for (unsigned i = 0; i < pulses.size(); ++i) {
 		double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
 		if (cycles > 2000.0) cycles = 2000.0;  // Don't make pauses arbitrarily bad.
-		double badness = (cycles - train_snap_points[0]) * (cycles - train_snap_points[0]);
-		for (unsigned j = 1; j < train_snap_points.size(); ++j) {
-			badness = std::min(badness, (cycles - train_snap_points[j]) * (cycles - train_snap_points[j]));
-		}
-		sum_badness += badness;
+		std::pair<int, double> selected_point_and_sq_dist = find_closest_point(cycles, train_snap_points);
+		sum_badness += selected_point_and_sq_dist.second;
 	}
 	return sqrt(sum_badness / (pulses.size() - 1));
 }
 
-void spsa_train(std::vector<float> &pcm, int sample_rate)
+void find_kmeans(const std::vector<pulse> &pulses, double calibration_factor, const std::vector<float> &initial_centers)
+{
+	std::vector<float> last_centers = initial_centers;
+	std::vector<float> sums;
+	std::vector<float> num;
+	sums.resize(initial_centers.size());
+	num.resize(initial_centers.size());
+	for ( ;; ) {
+		for (unsigned i = 0; i < initial_centers.size(); ++i) {
+			sums[i] = 0.0f;
+			num[i] = 0;
+		}
+		for (unsigned i = 0; i < pulses.size(); ++i) {
+			double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
+			// Ignore heavy outliers, which are almost always long pauses.
+			if (cycles > 2000.0) {
+				continue;
+			}
+			std::pair<int, double> selected_point_and_sq_dist = find_closest_point(cycles, last_centers);
+			int p = selected_point_and_sq_dist.first;
+			sums[p] += cycles;
+			++num[p];
+		}
+		bool any_moved = false;
+		for (unsigned i = 0; i < initial_centers.size(); ++i) {
+			if (num[i] == 0) {
+				printf("K-means broke down, can't output new reference training points\n");
+				return;
+			}
+			float new_center = sums[i] / num[i];
+			if (fabs(new_center - last_centers[i]) > 1e-3) {
+				any_moved = true;
+			}
+			last_centers[i] = new_center;
+		}
+		if (!any_moved) {
+			break;
+		}
+	}
+	printf("New reference training points:");
+	for (unsigned i = 0; i < last_centers.size(); ++i) {
+		printf(" %.3f", last_centers[i]);
+	}
+	printf("\n");
+}
+
+void spsa_train(const std::vector<float> &pcm, int sample_rate)
 {
 	float filter[NUM_FILTER_COEFF] = { 1.0f };  // The rest is filled with 0.
 
@@ -439,6 +496,8 @@ void spsa_train(std::vector<float> &pcm, int sample_rate)
 			}
 			best_badness = badness1;
 			printf("\n");
+
+			find_kmeans(pulses1, 1.0, train_snap_points);
 
 			if (output_cycles_plot) {
 				output_cycle_plot(pulses1, 1.0);
