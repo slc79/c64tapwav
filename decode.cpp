@@ -1,3 +1,6 @@
+// Copyright Steinar H. Gunderson <sgunderson@bigfoot.com>
+// Licensed under the GPL, v2. (See the file COPYING.)
+
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
