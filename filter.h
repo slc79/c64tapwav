@@ -17,6 +17,7 @@ public:
 	void reset();
 
 	static Filter lpf(float cutoff_radians);
+	static Filter hpf(float cutoff_radians);
 
 private:
 	float a1, a2, b0, b1, b2;

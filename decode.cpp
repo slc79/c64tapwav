@@ -11,6 +11,7 @@
 #include "interpolate.h"
 #include "level.h"
 #include "tap.h"
+#include "filter.h"
 
 #define BUFSIZE 4096
 #define C64_FREQUENCY 985248
@@ -31,11 +32,15 @@
 static float hysteresis_limit = 3000.0 / 32768.0;
 static bool do_calibrate = true;
 static bool output_cycles_plot = false;
-static bool use_filter = false;
 static bool do_crop = false;
 static float crop_start = 0.0f, crop_end = HUGE_VAL;
+
+static bool use_fir_filter = false;
 static float filter_coeff[NUM_FILTER_COEFF] = { 1.0f };  // The rest is filled with 0.
+static bool use_rc_filter = false;
+static float rc_filter_freq;
 static bool output_filtered = false;
+
 static bool quiet = false;
 static bool do_auto_level = false;
 static bool output_leveled = false;
@@ -175,6 +180,7 @@ static struct option long_options[] = {
 	{"plot-cycles",      0,                 0, 'p' },
 	{"hysteresis-limit", required_argument, 0, 'l' },
 	{"filter",           required_argument, 0, 'f' },
+	{"rc-filter",        required_argument, 0, 'r' },
 	{"output-filtered",  0,                 0, 'F' },
 	{"crop",             required_argument, 0, 'c' },
 	{"quiet",            0,                 0, 'q' },
@@ -193,6 +199,7 @@ void help()
 	fprintf(stderr, "  -p, --plot-cycles            output debugging info to cycles.plot\n");
 	fprintf(stderr, "  -l, --hysteresis-limit VAL   change amplitude threshold for ignoring pulses (0..32768)\n");
 	fprintf(stderr, "  -f, --filter C1:C2:C3:...    specify FIR filter (up to %d coefficients)\n", NUM_FILTER_COEFF);
+	fprintf(stderr, "  -r, --rc-filter FREQ         send signal through a highpass RC filter with given frequency (in Hertz)\n");
 	fprintf(stderr, "  -F, --output-filtered        output filtered waveform to filtered.raw\n");
 	fprintf(stderr, "  -c, --crop START[:END]       use only the given part of the file\n");
 	fprintf(stderr, "  -t, --train LEN1:LEN2:...    train a filter for detecting any of the given number of cycles\n");
@@ -206,7 +213,7 @@ void parse_options(int argc, char **argv)
 {
 	for ( ;; ) {
 		int option_index = 0;
-		int c = getopt_long(argc, argv, "aAm:spl:f:Fc:t:qh", long_options, &option_index);
+		int c = getopt_long(argc, argv, "aAm:spl:f:r:Fc:t:qh", long_options, &option_index);
 		if (c == -1)
 			break;
 
@@ -242,9 +249,14 @@ void parse_options(int argc, char **argv)
 				filter_coeff[coeff_index++] = atof(coeffstr);
 				coeffstr = strtok(NULL, ": ");
 			}
-			use_filter = true;
+			use_fir_filter = true;
 			break;
 		}
+
+		case 'r':
+			use_rc_filter = true;
+			rc_filter_freq = atof(optarg);
+			break;
 
 		case 'F':
 			output_filtered = true;
@@ -302,7 +314,7 @@ std::vector<float> crop(const std::vector<float>& pcm, float crop_start, float c
 }
 
 // TODO: Support AVX here.
-std::vector<float> do_filter(const std::vector<float>& pcm, const float* filter)
+std::vector<float> do_fir_filter(const std::vector<float>& pcm, const float* filter)
 {
 	std::vector<float> filtered_pcm;
 	filtered_pcm.reserve(pcm.size());
@@ -312,6 +324,24 @@ std::vector<float> do_filter(const std::vector<float>& pcm, const float* filter)
 			s += filter[j] * pcm[i - j];
 		}
 		filtered_pcm.push_back(s);
+	}
+
+	if (output_filtered) {
+		FILE *fp = fopen("filtered.raw", "wb");
+		fwrite(filtered_pcm.data(), filtered_pcm.size() * sizeof(filtered_pcm[0]), 1, fp);
+		fclose(fp);
+	}
+
+	return filtered_pcm;
+}
+
+std::vector<float> do_rc_filter(const std::vector<float>& pcm, float freq, int sample_rate)
+{
+	std::vector<float> filtered_pcm;
+	filtered_pcm.resize(pcm.size());
+	Filter filter = Filter::hpf(M_PI * freq / sample_rate);
+	for (unsigned i = 0; i < pcm.size(); ++i) {
+		filtered_pcm[i] = filter.update(pcm[i]);
 	}
 
 	if (output_filtered) {
@@ -472,8 +502,8 @@ void spsa_train(const std::vector<float> &pcm, int sample_rate)
 			filter2[i] = std::max(std::min(filter[i] + c * p[i], 1.0f), -1.0f);
 		}
 
-		std::vector<pulse> pulses1 = detect_pulses(do_filter(pcm, filter1), sample_rate);
-		std::vector<pulse> pulses2 = detect_pulses(do_filter(pcm, filter2), sample_rate);
+		std::vector<pulse> pulses1 = detect_pulses(do_fir_filter(pcm, filter1), sample_rate);
+		std::vector<pulse> pulses2 = detect_pulses(do_fir_filter(pcm, filter2), sample_rate);
 		float badness1 = eval_badness(pulses1, 1.0);
 		float badness2 = eval_badness(pulses2, 1.0);
 
@@ -523,8 +553,12 @@ int main(int argc, char **argv)
 		pcm = crop(pcm, crop_start, crop_end, sample_rate);
 	}
 
-	if (use_filter) {
-		pcm = do_filter(pcm, filter_coeff);
+	if (use_fir_filter) {
+		pcm = do_fir_filter(pcm, filter_coeff);
+	}
+
+	if (use_rc_filter) {
+		pcm = do_rc_filter(pcm, rc_filter_freq, sample_rate);
 	}
 
 	if (do_auto_level) {
