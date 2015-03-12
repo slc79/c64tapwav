@@ -42,11 +42,13 @@ struct AVPacketDeleter {
 	}
 };
 
+#if (LIBAVCODEC_VERSION_MAJOR >= 55)
 struct AVFrameDeleter {
 	void operator() (AVFrame *frame) {
 		av_frame_free(&frame);
 	}
 };
+#endif
 
 struct AVSampleDeleter {
 	void operator() (uint8_t *data) {
