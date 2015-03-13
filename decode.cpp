@@ -342,7 +342,7 @@ std::vector<float> do_rc_filter(const std::vector<float>& pcm, float freq, int s
 {
 	std::vector<float> filtered_pcm;
 	filtered_pcm.resize(pcm.size());
-	Filter filter = Filter::hpf(M_PI * freq / sample_rate);
+	Filter filter = Filter::hpf(2.0 * M_PI * freq / sample_rate);
 	for (unsigned i = 0; i < pcm.size(); ++i) {
 		filtered_pcm[i] = filter.update(pcm[i]);
 	}

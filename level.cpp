@@ -28,7 +28,7 @@ std::vector<float> level_samples(const std::vector<float> &pcm, float min_level,
 	refiltered_samples.resize(pcm.size());
 	leveled_samples.resize(pcm.size());
 
-	Filter filter = Filter::lpf(M_PI * LPFILTER_FREQ / sample_rate);
+	Filter filter = Filter::lpf(2.0 * M_PI * LPFILTER_FREQ / sample_rate);
 	for (unsigned i = 0; i < pcm.size(); ++i) {
 		filtered_samples[i] = filter.update(fabs(pcm[i]));
 	}
