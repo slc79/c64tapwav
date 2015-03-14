@@ -32,8 +32,8 @@
 #define GAMMA 0.166
 #define ALPHA 1.0
 
-static float hysteresis_upper_limit = 3000.0 / 32768.0;
-static float hysteresis_lower_limit = -3000.0 / 32768.0;
+static float hysteresis_upper_limit = 0.1;
+static float hysteresis_lower_limit = -0.1;
 static bool do_calibrate = true;
 static bool output_cycles_plot = false;
 static bool do_crop = false;
@@ -196,10 +196,10 @@ void help()
 	fprintf(stderr, "  -a, --auto-level             automatically adjust amplitude levels throughout the file\n");
 	fprintf(stderr, "  -b, --auto-level-freq        minimum frequency in Hertz of corrected level changes (default 200 Hz)\n");
 	fprintf(stderr, "  -A, --output-leveled         output leveled waveform to leveled.raw\n");
-	fprintf(stderr, "  -m, --min-level              minimum estimated sound level (0..32768) for --auto-level\n");
+	fprintf(stderr, "  -m, --min-level              minimum estimated sound level (0..1) for --auto-level\n");
 	fprintf(stderr, "  -s, --no-calibrate           do not try to calibrate on sync pulse length\n");
 	fprintf(stderr, "  -p, --plot-cycles            output debugging info to cycles.plot\n");
-	fprintf(stderr, "  -l, --hysteresis-limit VAL   change amplitude threshold for ignoring pulses (0..32768)\n");
+	fprintf(stderr, "  -l, --hysteresis-limit U[:L] change amplitude threshold for ignoring pulses (-1..1)\n");
 	fprintf(stderr, "  -f, --filter C1:C2:C3:...    specify FIR filter (up to %d coefficients)\n", NUM_FILTER_COEFF);
 	fprintf(stderr, "  -r, --rc-filter FREQ         send signal through a highpass RC filter with given frequency (in Hertz)\n");
 	fprintf(stderr, "  -F, --output-filtered        output filtered waveform to filtered.raw\n");
@@ -233,7 +233,7 @@ void parse_options(int argc, char **argv)
 			break;
 
 		case 'm':
-			min_level = atof(optarg) / 32768.0;
+			min_level = atof(optarg);
 			break;
 
 		case 's':
@@ -246,12 +246,12 @@ void parse_options(int argc, char **argv)
 
 		case 'l': {
 			const char *hyststr = strtok(optarg, ": ");
-			hysteresis_upper_limit = atof(hyststr) / 32768.0;
+			hysteresis_upper_limit = atof(hyststr);
 			hyststr = strtok(NULL, ": ");
 			if (hyststr == NULL) {
 				hysteresis_lower_limit = -hysteresis_upper_limit;
 			} else {
-				hysteresis_lower_limit = atof(hyststr) / 32768.0;
+				hysteresis_lower_limit = atof(hyststr);
 			}
 			break;
 		}
