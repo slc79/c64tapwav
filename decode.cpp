@@ -340,11 +340,23 @@ std::vector<float> do_fir_filter(const std::vector<float>& pcm, const float* fil
 
 std::vector<float> do_rc_filter(const std::vector<float>& pcm, float freq, int sample_rate)
 {
+	// This is only a 6 dB/oct filter, which seemingly works better
+	// than the Filter class, which is a standard biquad (12 dB/oct).
+	// The b/c calculations come from libnyquist (atone.c);
+	// I haven't checked, but I suppose they fall out of the bilinear
+	// transform of the transfer function H(s) = s/(s + w).
 	std::vector<float> filtered_pcm;
 	filtered_pcm.resize(pcm.size());
-	Filter filter = Filter::hpf(2.0 * M_PI * freq / sample_rate);
+	const float b = 2.0f - cos(2.0 * M_PI * freq / sample_rate);
+	const float c = b - sqrt(b * b - 1.0f);
+	float prev_in = 0.0f;
+	float prev_out = 0.0f;
 	for (unsigned i = 0; i < pcm.size(); ++i) {
-		filtered_pcm[i] = filter.update(pcm[i]);
+		float in = pcm[i];
+		float out = c * (prev_out + in - prev_in);
+		filtered_pcm[i] = out;
+		prev_in = in;
+		prev_out = out;
 	}
 
 	if (output_filtered) {
