@@ -32,7 +32,8 @@
 #define GAMMA 0.166
 #define ALPHA 1.0
 
-static float hysteresis_limit = 3000.0 / 32768.0;
+static float hysteresis_upper_limit = 3000.0 / 32768.0;
+static float hysteresis_lower_limit = -3000.0 / 32768.0;
 static bool do_calibrate = true;
 static bool output_cycles_plot = false;
 static bool do_crop = false;
@@ -56,24 +57,14 @@ static bool do_train = false;
 // possibly caused misdetected pulses in these segments.
 static float min_level = 0.05f;
 
-// between [x,x+1]
-double find_zerocrossing(const std::vector<float> &pcm, int x)
+// search for the value <limit> between [x,x+1]
+double find_crossing(const std::vector<float> &pcm, int x, float limit)
 {
-	if (pcm[x] == 0) {
-		return x;
-	}
-	if (pcm[x + 1] == 0) {
-		return x + 1;
-	}
-
-	assert(pcm[x + 1] < 0);
-	assert(pcm[x] > 0);
-
 	double upper = x;
 	double lower = x + 1;
 	while (lower - upper > 1e-3) {
 		double mid = 0.5f * (upper + lower);
-		if (lanczos_interpolate(pcm, mid) > 0) {
+		if (lanczos_interpolate(pcm, mid) > limit) {
 			upper = mid;
 		} else {
 			lower = mid;
@@ -241,9 +232,17 @@ void parse_options(int argc, char **argv)
 			output_cycles_plot = true;
 			break;
 
-		case 'l':
-			hysteresis_limit = atof(optarg) / 32768.0;
+		case 'l': {
+			const char *hyststr = strtok(optarg, ": ");
+			hysteresis_upper_limit = atof(hyststr) / 32768.0;
+			hyststr = strtok(NULL, ": ");
+			if (hyststr == NULL) {
+				hysteresis_lower_limit = -hysteresis_upper_limit;
+			} else {
+				hysteresis_lower_limit = atof(hyststr) / 32768.0;
+			}
 			break;
+		}
 
 		case 'f': {
 			const char *coeffstr = strtok(optarg, ": ");
@@ -373,44 +372,25 @@ std::vector<pulse> detect_pulses(const std::vector<float> &pcm, int sample_rate)
 	std::vector<pulse> pulses;
 
 	// Find the flanks.
-	int last_bit = -1;
+	enum State { START, ABOVE, BELOW } state = START;
 	double last_downflank = -1;
 	for (unsigned i = 0; i < pcm.size(); ++i) {
-		int bit = (pcm[i] > 0) ? 1 : 0;
-		if (bit == 0 && last_bit == 1) {
-			// Check if we ever go up above <hysteresis_limit> before we dip down again.
-			bool true_pulse = false;
-			unsigned j;
-			int min_level_after = 32767;
-			for (j = i; j < pcm.size(); ++j) {
-				min_level_after = std::min<int>(min_level_after, pcm[j]);
-				if (pcm[j] > 0) break;
-				if (pcm[j] < -hysteresis_limit) {
-					true_pulse = true;
-					break;
+		if (pcm[i] > hysteresis_upper_limit) {
+			state = ABOVE;
+		} else if (pcm[i] < hysteresis_lower_limit) {
+			if (state == ABOVE) {
+				// down-flank!
+				double t = find_crossing(pcm, i - 1, hysteresis_lower_limit) * (1.0 / sample_rate) + crop_start;
+				if (last_downflank > 0) {
+					pulse p;
+					p.time = t;
+					p.len = t - last_downflank;
+					pulses.push_back(p);
 				}
+				last_downflank = t;
 			}
-
-			if (!true_pulse) {
-#if 0
-				fprintf(stderr, "Ignored down-flank at %.6f seconds due to hysteresis (%d < %d).\n",
-					double(i) / sample_rate, -min_level_after, hysteresis_limit);
-#endif
-				i = j;
-				continue;
-			} 
-
-			// down-flank!
-			double t = find_zerocrossing(pcm, i - 1) * (1.0 / sample_rate) + crop_start;
-			if (last_downflank > 0) {
-				pulse p;
-				p.time = t;
-				p.len = t - last_downflank;
-				pulses.push_back(p);
-			}
-			last_downflank = t;
+			state = BELOW;
 		}
-		last_bit = bit;
 	}
 	return pulses;
 }
