@@ -477,7 +477,7 @@ void find_kmeans(const std::vector<pulse> &pulses, double calibration_factor, co
 		bool any_moved = false;
 		for (unsigned i = 0; i < initial_centers.size(); ++i) {
 			if (num[i] == 0) {
-				printf("K-means broke down, can't output new reference training points\n");
+				fprintf(stderr, "K-means broke down, can't output new reference training points\n");
 				return;
 			}
 			float new_center = sums[i] / num[i];
@@ -490,11 +490,11 @@ void find_kmeans(const std::vector<pulse> &pulses, double calibration_factor, co
 			break;
 		}
 	}
-	printf("New reference training points:");
+	fprintf(stderr, "New reference training points:");
 	for (unsigned i = 0; i < last_centers.size(); ++i) {
-		printf(" %.3f", last_centers[i]);
+		fprintf(stderr, " %.3f", last_centers[i]);
 	}
-	printf("\n");
+	fprintf(stderr, "\n");
 }
 
 void spsa_train(const std::vector<float> &pcm, int sample_rate)
