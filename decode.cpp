@@ -25,6 +25,7 @@
 
 // SPSA options
 #define NUM_FILTER_COEFF 32
+#define NUM_SPSA_VALS (NUM_FILTER_COEFF + 2)
 #define NUM_ITER 5000
 #define A NUM_ITER/10  // approx
 #define INITIAL_A 0.005 // A bit of trial and error...
@@ -379,7 +380,7 @@ std::vector<float> do_rc_filter(const std::vector<float>& pcm, float freq, int s
 	return filtered_pcm;
 }
 
-std::vector<pulse> detect_pulses(const std::vector<float> &pcm, int sample_rate)
+std::vector<pulse> detect_pulses(const std::vector<float> &pcm, float hysteresis_upper_limit, float hysteresis_lower_limit, int sample_rate)
 {
 	std::vector<pulse> pulses;
 
@@ -491,7 +492,7 @@ void find_kmeans(const std::vector<pulse> &pulses, double calibration_factor, co
 
 void spsa_train(const std::vector<float> &pcm, int sample_rate)
 {
-	float filter[NUM_FILTER_COEFF] = { 1.0f };  // The rest is filled with 0.
+	float vals[NUM_SPSA_VALS] = { hysteresis_upper_limit, hysteresis_lower_limit, 1.0f };  // The rest is filled with 0.
 
 	float start_c = INITIAL_C;
 	double best_badness = HUGE_VAL;
@@ -501,38 +502,38 @@ void spsa_train(const std::vector<float> &pcm, int sample_rate)
 		float c = start_c * pow(n, -GAMMA);
 
 		// find a random perturbation
-		float p[NUM_FILTER_COEFF];
-		float filter1[NUM_FILTER_COEFF], filter2[NUM_FILTER_COEFF];
-		for (int i = 0; i < NUM_FILTER_COEFF; ++i) {
+		float p[NUM_SPSA_VALS];
+		float vals1[NUM_SPSA_VALS], vals2[NUM_SPSA_VALS];
+		for (int i = 0; i < NUM_SPSA_VALS; ++i) {
 			p[i] = (rand() % 2) ? 1.0 : -1.0;
-			filter1[i] = std::max(std::min(filter[i] - c * p[i], 1.0f), -1.0f);
-			filter2[i] = std::max(std::min(filter[i] + c * p[i], 1.0f), -1.0f);
+			vals1[i] = std::max(std::min(vals[i] - c * p[i], 1.0f), -1.0f);
+			vals2[i] = std::max(std::min(vals[i] + c * p[i], 1.0f), -1.0f);
 		}
 
-		std::vector<pulse> pulses1 = detect_pulses(do_fir_filter(pcm, filter1), sample_rate);
-		std::vector<pulse> pulses2 = detect_pulses(do_fir_filter(pcm, filter2), sample_rate);
+		std::vector<pulse> pulses1 = detect_pulses(do_fir_filter(pcm, vals1 + 2), vals1[0], vals1[1], sample_rate);
+		std::vector<pulse> pulses2 = detect_pulses(do_fir_filter(pcm, vals2 + 2), vals2[0], vals2[1], sample_rate);
 		float badness1 = eval_badness(pulses1, 1.0);
 		float badness2 = eval_badness(pulses2, 1.0);
 
 		// Find the gradient estimator
-		float g[NUM_FILTER_COEFF];
-		for (int i = 0; i < NUM_FILTER_COEFF; ++i) {
+		float g[NUM_SPSA_VALS];
+		for (int i = 0; i < NUM_SPSA_VALS; ++i) {
 			g[i] = (badness2 - badness1) / (2.0 * c * p[i]);
-			filter[i] -= a * g[i];
-			filter[i] = std::max(std::min(filter[i], 1.0f), -1.0f);
+			vals[i] -= a * g[i];
+			vals[i] = std::max(std::min(vals[i], 1.0f), -1.0f);
 		}
 		if (badness2 < badness1) {
 			std::swap(badness1, badness2);
-			std::swap(filter1, filter2);
+			std::swap(vals1, vals2);
 			std::swap(pulses1, pulses2);
 		}
 		if (badness1 < best_badness) {
 			printf("\nNew best filter (badness=%f):", badness1);
 			for (int i = 0; i < NUM_FILTER_COEFF; ++i) {
-				printf(" %.5f", filter1[i]);
+				printf(" %.5f", vals1[i + 2]);
 			}
+			printf(", hysteresis limits = %f %f\n", vals1[0], vals1[1]);
 			best_badness = badness1;
-			printf("\n");
 
 			find_kmeans(pulses1, 1.0, train_snap_points);
 
@@ -594,7 +595,7 @@ int main(int argc, char **argv)
 		exit(0);
 	}
 
-	std::vector<pulse> pulses = detect_pulses(pcm, sample_rate);
+	std::vector<pulse> pulses = detect_pulses(pcm, hysteresis_upper_limit, hysteresis_lower_limit, sample_rate);
 
 	double calibration_factor = 1.0;
 	if (do_calibrate) {
