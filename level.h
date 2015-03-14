@@ -3,6 +3,6 @@
 
 #include <vector>
 
-std::vector<float> level_samples(const std::vector<float> &pcm, float min_level, int sample_rate);
+std::vector<float> level_samples(const std::vector<float> &pcm, float min_level, float lpfilter_freq, int sample_rate);
 
 #endif  // !defined(_LEVEL_H)

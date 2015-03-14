@@ -51,6 +51,11 @@ static bool output_leveled = false;
 static std::vector<float> train_snap_points;
 static bool do_train = false;
 
+// The frequency to filter on (for do_auto_level), in Hertz.
+// Larger values makes the compressor react faster, but if it is too large,
+// you'll ruin the waveforms themselves.
+static float auto_level_freq = 200.0;
+
 // The minimum estimated sound level (for do_auto_level) at any given point.
 // If you decrease this, you'll be able to amplify really silent signals
 // by more, but you'll also increase the level of silent (ie. noise-only) segments,
@@ -169,6 +174,7 @@ void output_tap(const std::vector<pulse>& pulses, double calibration_factor)
 
 static struct option long_options[] = {
 	{"auto-level",       0,                 0, 'a' },
+	{"auto-level-freq",  required_argument, 0, 'b' },
 	{"output-leveled",   0,                 0, 'A' },
 	{"min-level",        required_argument, 0, 'm' },
 	{"no-calibrate",     0,                 0, 's' },
@@ -188,6 +194,7 @@ void help()
 	fprintf(stderr, "decode [OPTIONS] AUDIO-FILE > TAP-FILE\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "  -a, --auto-level             automatically adjust amplitude levels throughout the file\n");
+	fprintf(stderr, "  -b, --auto-level-freq        minimum frequency in Hertz of corrected level changes (default 200 Hz)\n");
 	fprintf(stderr, "  -A, --output-leveled         output leveled waveform to leveled.raw\n");
 	fprintf(stderr, "  -m, --min-level              minimum estimated sound level (0..32768) for --auto-level\n");
 	fprintf(stderr, "  -s, --no-calibrate           do not try to calibrate on sync pulse length\n");
@@ -208,13 +215,17 @@ void parse_options(int argc, char **argv)
 {
 	for ( ;; ) {
 		int option_index = 0;
-		int c = getopt_long(argc, argv, "aAm:spl:f:r:Fc:t:qh", long_options, &option_index);
+		int c = getopt_long(argc, argv, "ab:Am:spl:f:r:Fc:t:qh", long_options, &option_index);
 		if (c == -1)
 			break;
 
 		switch (c) {
 		case 'a':
 			do_auto_level = true;
+			break;
+
+		case 'b':
+			auto_level_freq = atof(optarg);
 			break;
 
 		case 'A':
@@ -558,7 +569,7 @@ int main(int argc, char **argv)
 	}
 
 	if (do_auto_level) {
-		pcm = level_samples(pcm, min_level, sample_rate);
+		pcm = level_samples(pcm, min_level, auto_level_freq, sample_rate);
 		if (output_leveled) {
 			FILE *fp = fopen("leveled.raw", "wb");
 			fwrite(pcm.data(), pcm.size() * sizeof(pcm[0]), 1, fp);

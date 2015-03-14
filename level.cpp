@@ -8,11 +8,6 @@
 
 #include "filter.h"
 
-// The frequency to filter on, in Hertz. Larger values makes the
-// compressor react faster, but if it is too large, you'll
-// ruin the waveforms themselves.
-#define LPFILTER_FREQ 50.0
-
 // A final scalar to get the audio within approximately the right range.
 // Increase to _lower_ overall volume.
 #define DAMPENING_FACTOR 5.0
@@ -20,7 +15,7 @@
 // 6dB/oct per round.
 #define FILTER_DEPTH 4
 
-std::vector<float> level_samples(const std::vector<float> &pcm, float min_level, int sample_rate)
+std::vector<float> level_samples(const std::vector<float> &pcm, float min_level, float lpfilter_freq, int sample_rate)
 {
 	// filter forwards, then backwards (perfect phase filtering)
 	std::vector<float> filtered_samples, refiltered_samples, leveled_samples;
@@ -28,7 +23,7 @@ std::vector<float> level_samples(const std::vector<float> &pcm, float min_level,
 	refiltered_samples.resize(pcm.size());
 	leveled_samples.resize(pcm.size());
 
-	Filter filter = Filter::lpf(2.0 * M_PI * LPFILTER_FREQ / sample_rate);
+	Filter filter = Filter::lpf(2.0 * M_PI * lpfilter_freq / sample_rate);
 	for (unsigned i = 0; i < pcm.size(); ++i) {
 		filtered_samples[i] = filter.update(fabs(pcm[i]));
 	}
