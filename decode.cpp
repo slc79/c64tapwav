@@ -528,11 +528,11 @@ void spsa_train(const std::vector<float> &pcm, int sample_rate)
 			std::swap(pulses1, pulses2);
 		}
 		if (badness1 < best_badness) {
-			printf("\nNew best filter (badness=%f):", badness1);
+			fprintf(stderr, "\nNew best filter (badness=%f):", badness1);
 			for (int i = 0; i < NUM_FILTER_COEFF; ++i) {
-				printf(" %.5f", vals1[i + 2]);
+				fprintf(stderr, " %.5f", vals1[i + 2]);
 			}
-			printf(", hysteresis limits = %f %f\n", vals1[0], vals1[1]);
+			fprintf(stderr, ", hysteresis limits = %f %f\n", vals1[0], vals1[1]);
 			best_badness = badness1;
 
 			find_kmeans(pulses1, 1.0, train_snap_points);
@@ -541,8 +541,8 @@ void spsa_train(const std::vector<float> &pcm, int sample_rate)
 				output_cycle_plot(pulses1, 1.0);
 			}
 		}
-		printf("%d ", n);
-		fflush(stdout);
+		fprintf(stderr, "%d ", n);
+		fflush(stderr);
 	}
 }
 
