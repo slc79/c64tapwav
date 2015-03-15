@@ -7,6 +7,9 @@
 #include <assert.h>
 #include <limits.h>
 #include <getopt.h>
+#ifdef __AVX__
+#include <immintrin.h>
+#endif
 #include <vector>
 #include <algorithm>
 
@@ -328,17 +331,30 @@ std::vector<float> crop(const std::vector<float>& pcm, float crop_start, float c
 	return std::vector<float>(pcm.begin() + start_sample, pcm.begin() + end_sample);
 }
 
-// TODO: Support AVX here.
 std::vector<float> do_fir_filter(const std::vector<float>& pcm, const float* filter)
 {
 	std::vector<float> filtered_pcm;
-	filtered_pcm.reserve(pcm.size());
-	for (unsigned i = NUM_FILTER_COEFF; i < pcm.size(); ++i) {
+	filtered_pcm.resize(pcm.size());
+	unsigned i = NUM_FILTER_COEFF;
+#ifdef __AVX__
+	unsigned avx_end = i + ((pcm.size() - i) & ~7);
+	for ( ; i < avx_end; i += 8) {
+		__m256 s = _mm256_setzero_ps();
+		for (int j = 0; j < NUM_FILTER_COEFF; ++j) {
+			__m256 f = _mm256_set1_ps(filter[j]);
+			s = _mm256_fmadd_ps(f, _mm256_load_ps(&pcm[i - j]), s);
+		}
+		_mm256_storeu_ps(&filtered_pcm[i], s);
+	}
+#endif
+	// Do what we couldn't do with AVX (which is everything for non-AVX machines)
+	// as scalar code.
+	for (; i < pcm.size(); ++i) {
 		float s = 0.0f;
 		for (int j = 0; j < NUM_FILTER_COEFF; ++j) {
 			s += filter[j] * pcm[i - j];
 		}
-		filtered_pcm.push_back(s);
+		filtered_pcm[i] = s;
 	}
 
 	if (output_filtered) {
