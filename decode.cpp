@@ -195,6 +195,7 @@ static struct option long_options[] = {
 	{"rc-filter",        required_argument, 0, 'r' },
 	{"output-filtered",  0,                 0, 'F' },
 	{"crop",             required_argument, 0, 'c' },
+	{"train",            required_argument, 0, 't' },
 	{"quiet",            0,                 0, 'q' },
 	{"help",             0,                 0, 'h' },
 	{0,                  0,                 0, 0   }
