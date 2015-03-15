@@ -1,4 +1,4 @@
-CXXFLAGS=--std=gnu++0x -O2 -fno-math-errno -g -Wall
+CXXFLAGS=--std=gnu++0x -O2 -fno-math-errno -march=native -g -Wall
 LDLIBS=-lavcodec -lavformat -lavutil -lswresample
 
 all: synth decode sync cleaner
