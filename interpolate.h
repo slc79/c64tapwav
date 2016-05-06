@@ -1,3 +1,4 @@
+#define _USE_MATH_DEFINES
 #ifndef _INTERPOLATE_H
 #define _INTERPOLATE_H 1
 
@@ -31,7 +32,7 @@ void make_lanczos_weight_table();
 
 inline double lanczos_weight_table(float x)
 {
-	int table_id = lrintf(fabsf(x) * LANCZOS_RESOLUTION);
+	int table_id = (int)(fabsf(x) * LANCZOS_RESOLUTION);
 	if (table_id >= LANCZOS_RADIUS * LANCZOS_RESOLUTION) {
 		return 0.0;
 	}

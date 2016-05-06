@@ -10,4 +10,13 @@ struct tap_header {
 	unsigned int data_len;
 };
 
+struct dmp_header {
+	char identifier[12];
+	char version;
+	char machine;
+	char videosystem;
+	char resolution;
+	unsigned int frequency;
+};
+
 #endif  // !defined(_TAP_H)

@@ -1,18 +1,25 @@
 // Copyright Steinar H. Gunderson <sgunderson@bigfoot.com>
 // Licensed under the GPL, v2. (See the file COPYING.)
 
+#define NOMINMAX
+#define __AVX__
+
+float filter200hz[88] = {-6.13722842764208e-05,-6.13722842764208e-05,-0.000122744568552842,-0.000184116852829262,-0.000245489137105683,-0.000368233705658525,-0.000490978274211366,-0.000613722842764208,-0.00079783969559347,-0.00104332883269915,-0.00128881796980484,-0.00159567939118694,-0.00196391309684546,-0.00233214680250399,-0.00282312507671536,-0.00337547563520314,-0.00398919847796735,-0.00466429360500798,-0.00540076101632503,-0.0061986007119185,-0.00705781269178839,-0.00803976924021112,-0.00902172578863385,-0.0101264269056094,-0.0112925003068614,-0.0124585737081134,-0.0136860193936418,-0.0149134650791702,-0.0162022830489751,-0.0174911010187799,-0.0187799189885848,-0.0200687369583896,-0.0213575549281944,-0.0225236283294464,-0.0236897017306984,-0.024794402847674,-0.0257763593960967,-0.026696943660243,-0.0274947833558365,-0.0281698784828771,-0.0287222290413649,-0.0291518350312999,-0.0293973241684055,1,-0.0295814410212348,-0.0293973241684055,-0.0291518350312999,-0.0287222290413649,-0.0281085061986007,-0.0274334110715601,-0.0266355713759666,-0.0257149871118203,-0.0247330305633976,-0.023628329446422,-0.02246225604517,-0.021296182643918,-0.0200073646741132,-0.0187799189885848,-0.0174297287345035,-0.0161409107646987,-0.0148520927948938,-0.0136246471093654,-0.012397201423837,-0.011231128022585,-0.010065054621333,-0.00902172578863385,-0.0079783969559347,-0.00705781269178839,-0.00613722842764208,-0.00533938873204861,-0.00460292132073156,-0.00392782619369093,-0.00331410335092672,-0.00282312507671536,-0.00233214680250399,-0.00190254081256904,-0.00159567939118694,-0.00128881796980484,-0.000981956548422732,-0.00079783969559347,-0.000613722842764208,-0.000490978274211366,-0.000368233705658525,-0.000245489137105683,-0.000184116852829262,-0.000122744568552842,-6.13722842764208e-05,-6.13722842764208e-05 };
+
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
 #include <assert.h>
 #include <limits.h>
-#include <getopt.h>
+#include <io.h>
+#include <fcntl.h>
 #ifdef __AVX__
 #include <immintrin.h>
 #endif
 #include <vector>
 #include <algorithm>
 
+#include "getopt.h"
 #include "audioreader.h"
 #include "interpolate.h"
 #include "level.h"
@@ -27,7 +34,7 @@
 #define SYNC_TEST_TOLERANCE 1.10
 
 // SPSA options
-#define NUM_FILTER_COEFF 32
+#define NUM_FILTER_COEFF 96
 #define NUM_SPSA_VALS (NUM_FILTER_COEFF + 2)
 #define NUM_ITER 5000
 #define A NUM_ITER/10  // approx
@@ -36,12 +43,17 @@
 #define GAMMA 0.166
 #define ALPHA 1.0
 
-static float hysteresis_upper_limit = 0.1;
-static float hysteresis_lower_limit = -0.1;
-static bool do_calibrate = true;
+static float hysteresis_upper_limit = 0.05;
+static float hysteresis_lower_limit = -0.05;
+static bool do_calibrate = false;
 static bool output_cycles_plot = false;
 static bool do_crop = false;
+static bool do_range = false;
+static bool do_invert = false;
+static bool do_tap32 = false;
 static float crop_start = 0.0f, crop_end = HUGE_VAL;
+static bool apply_range = false;
+static float range_start = 0.0f, range_end = HUGE_VAL;
 
 static bool use_fir_filter = false;
 static float filter_coeff[NUM_FILTER_COEFF] = { 1.0f };  // The rest is filled with 0.
@@ -159,10 +171,12 @@ void output_tap(const std::vector<pulse>& pulses, double calibration_factor)
 		double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
 		int len = lrintf(cycles / TAP_RESOLUTION);
 		if (i > SYNC_PULSE_END && (cycles < 100 || cycles > 800)) {
-			fprintf(stderr, "Cycle with downflank at %.6f was detected at %.0f cycles; misdetect?\n",
+			fprintf(stderr, "Cycle with downflank at %.6f was detected at %.0f cycles\n",
 					pulses[i].time, cycles);
 		}
-		if (len <= 255) {
+
+
+		if (len <= 255 && do_tap32 == false) {
 			tap_data.push_back(len);
 		} else {
 			int overflow_len = lrintf(cycles);
@@ -183,9 +197,57 @@ void output_tap(const std::vector<pulse>& pulses, double calibration_factor)
 	fwrite(tap_data.data(), tap_data.size(), 1, stdout);
 }
 
+/*
+
+For internal testing only.
+
+void output_dmp(const std::vector<pulse>& pulses, double calibration_factor)
+{
+	std::vector<short> tap_data;
+	dmp_header hdr;
+	memcpy(hdr.identifier, "DC2N-TAP-RAW", 12);
+	hdr.version = 0;
+	hdr.machine = 0;
+	hdr.resolution = 16;
+	hdr.frequency = C64_FREQUENCY;
+	hdr.videosystem = 0;
+
+	unsigned int pause_count = 0;
+
+	fwrite(&hdr, sizeof(hdr), 1, stdout);
+	
+	for (unsigned i = 0; i < pulses.size(); ++i)
+	{
+		double cycles = pulses[i].len * calibration_factor * C64_FREQUENCY;
+		int len = lrintf(cycles);
+		if (i > SYNC_PULSE_END && (cycles < 100 || cycles > 800)) 
+		{
+			pause_count++;
+			fprintf(stderr, "Cycle with downflank at %.6f was detected at %.0f cycles\n",
+				pulses[i].time, cycles);
+		}
+
+		if(len < 0xffff)
+			tap_data.push_back(len);
+		else
+		{
+			int overflow_count = len / 0xffff;
+			for (int i = 0;i < overflow_count;i++)
+				tap_data.push_back(0xffff);
+			tap_data.push_back(len % 0xffff);
+		}
+
+	}
+	
+	fprintf(stderr, "\n%d long pulses/pauses detected\n", pause_count);
+	fwrite(tap_data.data(), tap_data.size()*2, 1, stdout);
+}
+*/
+
 static struct option long_options[] = {
 	{"auto-level",       0,                 0, 'a' },
 	{"auto-level-freq",  required_argument, 0, 'b' },
+	{"invert",           0,                 0, 'i' },
 	{"output-leveled",   0,                 0, 'A' },
 	{"min-level",        required_argument, 0, 'm' },
 	{"no-calibrate",     0,                 0, 's' },
@@ -193,8 +255,10 @@ static struct option long_options[] = {
 	{"hysteresis-limit", required_argument, 0, 'l' },
 	{"filter",           required_argument, 0, 'f' },
 	{"rc-filter",        required_argument, 0, 'r' },
+	{"highpass-filter",	 0,					0, 'H' },
 	{"output-filtered",  0,                 0, 'F' },
 	{"crop",             required_argument, 0, 'c' },
+	{"range",            required_argument, 0, 'R' },
 	{"train",            required_argument, 0, 't' },
 	{"quiet",            0,                 0, 'q' },
 	{"help",             0,                 0, 'h' },
@@ -207,17 +271,21 @@ void help()
 	fprintf(stderr, "\n");
 	fprintf(stderr, "  -a, --auto-level             automatically adjust amplitude levels throughout the file\n");
 	fprintf(stderr, "  -b, --auto-level-freq        minimum frequency in Hertz of corrected level changes (default 200 Hz)\n");
+	fprintf(stderr, "  -i, --invert                 invert audio\n");
 	fprintf(stderr, "  -A, --output-leveled         output leveled waveform to leveled.raw\n");
 	fprintf(stderr, "  -m, --min-level              minimum estimated sound level (0..1) for --auto-level\n");
-	fprintf(stderr, "  -s, --no-calibrate           do not try to calibrate on sync pulse length\n");
+	fprintf(stderr, "  -s, --calibrate              try to calibrate on sync pulse length\n");
 	fprintf(stderr, "  -p, --plot-cycles            output debugging info to cycles.plot\n");
 	fprintf(stderr, "  -l, --hysteresis-limit U[:L] change amplitude threshold for ignoring pulses (-1..1)\n");
 	fprintf(stderr, "  -f, --filter C1:C2:C3:...    specify FIR filter (up to %d coefficients)\n", NUM_FILTER_COEFF);
 	fprintf(stderr, "  -r, --rc-filter FREQ         send signal through a highpass RC filter with given frequency (in Hertz)\n");
+	fprintf(stderr, "  -H, --highpass-filter        use a pre-defined 200Hz highpass filter (do not combine with -r or -f)\n");
 	fprintf(stderr, "  -F, --output-filtered        output filtered waveform to filtered.raw\n");
 	fprintf(stderr, "  -c, --crop START[:END]       use only the given part of the file\n");
+	fprintf(stderr, "  -R, --range START[:END]      applies FIR-filter only to specified range\n");
 	fprintf(stderr, "  -t, --train LEN1:LEN2:...    train a filter for detecting any of the given number of cycles\n");
 	fprintf(stderr, "                               (implies --no-calibrate and --quiet unless overridden)\n");
+	fprintf(stderr, "  -T, --tap32                  outputs a TAP file with true pulse lengths\n");
 	fprintf(stderr, "  -q, --quiet                  suppress some informational messages\n");
 	fprintf(stderr, "  -h, --help                   display this help, then exit\n");
 	exit(1);
@@ -227,13 +295,17 @@ void parse_options(int argc, char **argv)
 {
 	for ( ;; ) {
 		int option_index = 0;
-		int c = getopt_long(argc, argv, "ab:Am:spl:f:r:Fc:t:qh", long_options, &option_index);
+		int c = getopt_long(argc, argv, "ab:iAm:spl:f:Hr:Fc:R:t:qhT", long_options, &option_index);
 		if (c == -1)
 			break;
 
 		switch (c) {
 		case 'a':
 			do_auto_level = true;
+			break;
+
+		case 'i':
+			do_invert = true;
 			break;
 
 		case 'b':
@@ -249,9 +321,8 @@ void parse_options(int argc, char **argv)
 			break;
 
 		case 's':
-			do_calibrate = false;
+			do_calibrate = true;
 			break;
-
 		case 'p':
 			output_cycles_plot = true;
 			break;
@@ -279,6 +350,15 @@ void parse_options(int argc, char **argv)
 			break;
 		}
 
+		case 'H': {
+			int coeff_index = 0;
+			while (coeff_index < 88) {
+				filter_coeff[coeff_index] = filter200hz[coeff_index++];
+			}
+			use_fir_filter = true;
+			break;
+		}
+
 		case 'r':
 			use_rc_filter = true;
 			rc_filter_freq = atof(optarg);
@@ -301,6 +381,21 @@ void parse_options(int argc, char **argv)
 			break;
 		}
 
+		case 'R': {
+			const char *rangestr = strtok(optarg, ":");
+			range_start = atof(rangestr);
+			rangestr = strtok(NULL, ":");
+			if (rangestr == NULL) {
+				range_end = HUGE_VAL;
+			}
+			else {
+				range_end = atof(rangestr);
+			}
+			do_range = true;
+			break;
+		}
+
+
 		case 't': {
 			const char *cyclestr = strtok(optarg, ":");
 			while (cyclestr != NULL) {
@@ -314,6 +409,10 @@ void parse_options(int argc, char **argv)
 			quiet = true;
 			break;
 		}
+
+		case 'T':
+			do_tap32 = true;
+			break;
 
 		case 'q':
 			quiet = true;
@@ -339,30 +438,73 @@ std::vector<float> crop(const std::vector<float>& pcm, float crop_start, float c
 	return std::vector<float>(pcm.begin() + start_sample, pcm.begin() + end_sample);
 }
 
-std::vector<float> do_fir_filter(const std::vector<float>& pcm, const float* filter)
+std::vector<float> do_fir_filter(const std::vector<float>& pcm, const float* filter, int sample_rate)
 {
 	std::vector<float> filtered_pcm;
 	filtered_pcm.resize(pcm.size());
 	unsigned i = NUM_FILTER_COEFF;
+	unsigned int start_sample = lrintf(range_start * sample_rate);
+	unsigned int end_sample = lrintf(range_end * sample_rate);
+
 #ifdef __AVX__
-	unsigned avx_end = i + ((pcm.size() - i) & ~7);
-	for ( ; i < avx_end; i += 8) {
-		__m256 s = _mm256_setzero_ps();
-		for (int j = 0; j < NUM_FILTER_COEFF; ++j) {
-			__m256 f = _mm256_set1_ps(filter[j]);
-			s = _mm256_fmadd_ps(f, _mm256_load_ps(&pcm[i - j]), s);
+	
+	if (do_range == true) {
+		unsigned avx_end = i + ((pcm.size() - i) & ~7);
+		for ( ; i < avx_end; i += 8) {
+			__m256 s = _mm256_setzero_ps();
+			for (int j = 0; j < NUM_FILTER_COEFF; ++j) {
+				if ((i < end_sample) && (i > start_sample)) {
+					__m256 f = _mm256_set1_ps(filter[j]);
+					__m256 t;
+					t = _mm256_mul_ps(f, _mm256_loadu_ps(&pcm[i - j]));
+					s = _mm256_add_ps(t, s);
+				}
+				else
+					s = _mm256_loadu_ps(&pcm[i - j]);
+			}
+			_mm256_storeu_ps(&filtered_pcm[i], s);
 		}
-		_mm256_storeu_ps(&filtered_pcm[i], s);
+	}
+	else {
+		unsigned avx_end = i + ((pcm.size() - i) & ~7);
+		for (; i < avx_end; i += 8)	{
+			__m256 s = _mm256_setzero_ps();
+			for (int j = 0; j < NUM_FILTER_COEFF; ++j) {
+				__m256 f = _mm256_set1_ps(filter[j]);
+				__m256 t;
+				//			s = _mm256_fmadd_ps(f, _mm256_load_ps(&pcm[i - j]), s);
+				t = _mm256_mul_ps(f, _mm256_loadu_ps(&pcm[i - j]));
+				s = _mm256_add_ps(t, s);
+			}
+			_mm256_storeu_ps(&filtered_pcm[i], s);
+		}
 	}
 #endif
+
 	// Do what we couldn't do with AVX (which is everything for non-AVX machines)
 	// as scalar code.
-	for (; i < pcm.size(); ++i) {
-		float s = 0.0f;
-		for (int j = 0; j < NUM_FILTER_COEFF; ++j) {
-			s += filter[j] * pcm[i - j];
+	if (do_range == true) {
+		for (; i < pcm.size(); ++i)	{
+			float s = 0.0f;
+			if ((i > start_sample) && (i < end_sample))	{
+				for (int j = 0; j < NUM_FILTER_COEFF; ++j)
+					s += filter[j] * pcm[i - j];
+			}
+			else
+				s = pcm[i];
+
+			filtered_pcm[i] = s;
 		}
-		filtered_pcm[i] = s;
+	}
+	else
+	{
+		for (; i < pcm.size(); ++i) {
+			float s = 0.0f;
+			for (int j = 0; j < NUM_FILTER_COEFF; ++j) {
+				s += filter[j] * pcm[i - j];
+			}
+			filtered_pcm[i] = s;
+		}
 	}
 
 	if (output_filtered) {
@@ -415,7 +557,8 @@ std::vector<pulse> detect_pulses(const std::vector<float> &pcm, float hysteresis
 	for (unsigned i = 0; i < pcm.size(); ++i) {
 		if (pcm[i] > hysteresis_upper_limit) {
 			state = ABOVE;
-		} else if (pcm[i] < hysteresis_lower_limit) {
+		}
+		else if (pcm[i] < hysteresis_lower_limit) {
 			if (state == ABOVE) {
 				// down-flank!
 				double t = find_crossing<fast>(pcm, i - 1, hysteresis_lower_limit) * (1.0 / sample_rate) + crop_start;
@@ -429,6 +572,8 @@ std::vector<pulse> detect_pulses(const std::vector<float> &pcm, float hysteresis
 			}
 			state = BELOW;
 		}
+//		else
+//			state = ABOVE;
 	}
 	return pulses;
 }
@@ -535,8 +680,8 @@ void spsa_train(const std::vector<float> &pcm, int sample_rate)
 			vals2[i] = std::max(std::min(vals[i] + c * p[i], 1.0f), -1.0f);
 		}
 
-		std::vector<pulse> pulses1 = detect_pulses<true>(do_fir_filter(pcm, vals1 + 2), vals1[0], vals1[1], sample_rate);
-		std::vector<pulse> pulses2 = detect_pulses<true>(do_fir_filter(pcm, vals2 + 2), vals2[0], vals2[1], sample_rate);
+		std::vector<pulse> pulses1 = detect_pulses<true>(do_fir_filter(pcm, vals1 + 2, sample_rate), vals1[0], vals1[1], sample_rate);
+		std::vector<pulse> pulses2 = detect_pulses<true>(do_fir_filter(pcm, vals2 + 2, sample_rate), vals2[0], vals2[1], sample_rate);
 		float badness1 = eval_badness(pulses1, 1.0);
 		float badness2 = eval_badness(pulses2, 1.0);
 
@@ -553,11 +698,11 @@ void spsa_train(const std::vector<float> &pcm, int sample_rate)
 			std::swap(pulses1, pulses2);
 		}
 		if (badness1 < best_badness) {
-			fprintf(stderr, "\nNew best filter (badness=%f):", badness1);
+			fprintf(stderr, "\nNew best filter (badness=%f): -f", badness1);
 			for (int i = 0; i < NUM_FILTER_COEFF; ++i) {
-				fprintf(stderr, " %.5f", vals1[i + 2]);
+				fprintf(stderr, "%.5f:", vals1[i + 2]);
 			}
-			fprintf(stderr, ", hysteresis limits = %f %f\n", vals1[0], vals1[1]);
+			fprintf(stderr, " -l%f:%f\n", vals1[0], vals1[1]);
 			best_badness = badness1;
 
 			find_kmeans(pulses1, 1.0, train_snap_points);
@@ -571,9 +716,30 @@ void spsa_train(const std::vector<float> &pcm, int sample_rate)
 	}
 }
 
+std::vector<float> invert(const std::vector<float> &pcm)
+{
+	std::vector<float> inverted_pcm;
+	inverted_pcm.resize(pcm.size());
+
+	for (int i = 0; i < pcm.size(); i++)
+	{
+		float sample = pcm[i];
+		sample = -sample;
+		inverted_pcm[i] = sample;
+	}
+
+	return inverted_pcm;
+}
+
 int main(int argc, char **argv)
 {
+	if (argc < 2) {
+		help();
+		exit(0);
+	}
+
 	parse_options(argc, argv);
+	_setmode(_fileno(stdout), _O_BINARY);
 
 	make_lanczos_weight_table();
 	std::vector<float> pcm;
@@ -582,12 +748,22 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
+	if (do_invert) {
+		pcm = invert(pcm);
+	}
+
 	if (do_crop) {
 		pcm = crop(pcm, crop_start, crop_end, sample_rate);
 	}
 
+	/*
+	if (do_sync) {
+		pcm = sync();
+	}
+	*/
+
 	if (use_fir_filter) {
-		pcm = do_fir_filter(pcm, filter_coeff);
+		pcm = do_fir_filter(pcm, filter_coeff, sample_rate);
 	}
 
 	if (use_rc_filter) {
@@ -614,7 +790,6 @@ int main(int argc, char **argv)
 		printf("%d\n", in[i]);
 	}
 #endif
-
 	if (do_train) {
 		spsa_train(pcm, sample_rate);
 		exit(0);

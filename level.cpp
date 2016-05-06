@@ -1,3 +1,4 @@
+#define _USE_MATH_DEFINES
 // A small program to try to even out the audio levels within a file
 // (essentially a compressor with infinite lookahead).
 

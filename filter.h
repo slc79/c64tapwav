@@ -25,3 +25,4 @@ private:
 };
 
 #endif  // !defined(_FILTER_H)
+

@@ -5,6 +5,12 @@
 #define THEORY_FROM -20.0  /* in samples */
 #define THEORY_TO 20.0  /* in samples */
 #define SWITCH_COST 1000.0  /* pretty arbitrary */
+#define _CRT_SECURE_NO_WARNINGS
+
+#if defined(_MSC_VER)
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#endif
 
 #include <stdio.h>
 #include <math.h>
@@ -14,6 +20,23 @@
 #include "interpolate.h"
 
 #define BUFSIZE 4096
+
+struct wav_file{
+	unsigned int chunk_id;
+	unsigned int chunk_size;
+	unsigned int format;
+	unsigned int subchunk1_id;
+	unsigned int subchunk1_size;
+	unsigned short audio_format;
+	unsigned short num_channels;
+	unsigned int sample_rate;
+	unsigned int byte_rate;
+	unsigned short block_align;
+	unsigned short bits_per_sample;
+	unsigned int subchunk2_id;
+	unsigned int subchunk2_size;
+	char *data;
+};
 
 struct stereo_sample {
 	short left, right;
@@ -39,18 +62,105 @@ struct hypothesis {
 	hypothesis *prev;
 };
 
+int wav_sanitycheck(wav_file wav)
+{
+
+	printf("Sample rate : %d Hz\n", wav.sample_rate);
+	printf("Bit depth   : %d bit\n", wav.bits_per_sample);
+	printf("Channels    : %d\n\n", wav.num_channels);
+
+	if (strncmp((char*)&wav.chunk_id, "RIFF", 4) != 0)
+	{
+		printf("Not a RIFF file\n");
+		return -1;
+	}
+	
+	if (strncmp((char*)&wav.subchunk1_id, "fmt ", 4) != 0)
+	{
+		printf("Unexpected subchunk\n");
+		return -1;
+	}
+	if (wav.num_channels != 2)
+	{
+		printf("Only stereo supported\n");
+		return -1;
+	}
+
+	if (wav.audio_format != 1)
+	{
+		printf("Only PCM supported\n");
+		return -1;
+	}
+
+	if (wav.bits_per_sample != 16)
+	{
+		printf("Only 16 bit audio supported\n");
+		return -1;
+	}
+
+	if (wav.subchunk1_size != 16)
+	{
+		printf("Unsupported wav-format %d", wav.subchunk1_size);
+		return -1;
+	}
+
+	return 0;
+}
 int main(int argc, char **argv)
 {
+	if (argc < 3)
+	{
+		printf("Usage: sync <source.wav> <destination.wav>\n");
+		exit(0);
+	}
+
+	FILE *ftr;
+
 	make_lanczos_weight_table();
 	std::vector<stereo_sample> pcm;
 
-	while (!feof(stdin)) {
-		stereo_sample buf[BUFSIZE];
-		ssize_t ret = fread(buf, sizeof(stereo_sample), BUFSIZE, stdin);
-		if (ret >= 0) {
-			pcm.insert(pcm.end(), buf, buf + ret);
-		}
+	float sample_rate = 48000.0f;
+	unsigned int filesize = 0;
+
+	wav_file source_file;
+	wav_file dest_file;
+	ftr = fopen(argv[1], "rb");
+	fseek(ftr, 0, SEEK_END);
+	filesize = ftell(ftr);
+	rewind(ftr);
+
+	if(filesize > 44)
+		fread(&source_file, sizeof(char), 44, ftr);
+	else
+	{
+		printf("Invalid file\n");
+		exit(0);
 	}
+
+	if (wav_sanitycheck(source_file) == -1)
+	{
+		printf("Loading terminated\n");
+		exit(0);
+	}
+
+	fseek(ftr, 44, SEEK_SET);
+	source_file.data = (char*)malloc((sizeof(char)*filesize) - 44);
+	fread(source_file.data, sizeof(char), filesize - 44, ftr);
+	fclose(ftr);
+
+	unsigned int number_of_samples;
+	sample_rate = (float)source_file.sample_rate;
+
+	for (unsigned int i = 0;i < filesize-44;i+=4)
+	{
+		stereo_sample read_sample;
+		read_sample.left = (short)((unsigned char)source_file.data[i + 1]) << 8 | (unsigned char)source_file.data[i];
+		read_sample.right = (short)((unsigned char)source_file.data[i + 3] << 8 | (unsigned char)source_file.data[i + 2]);
+		pcm.push_back(read_sample);
+	}
+
+	free(source_file.data);
+	source_file.data = NULL;
 
 	double sum_left = 0.0, sum_right = 0.0;
 	for (unsigned i = 0; i < pcm.size(); ++i) {
@@ -95,9 +205,9 @@ int main(int argc, char **argv)
 		offset -= 0.1 * old_diff;
 
 		if (i % 100 == 0) {
-			fprintf(stderr, "%7.3f: %7.3f [diff=%8.3f lagged diff=%8.3f]\n", i / 44100.0, offset, diff, old_diff);
+			fprintf(stderr, "%7.3f: %7.3f [diff=%8.3f lagged diff=%8.3f]\n", i / sample_rate, offset, diff, old_diff);
 		}
-		printf("%f %f %f\n", i / 44100.0, left, right);
+		printf("%f %f %f\n", i / sample_rate, left, right);
 	}
 #endif
 
@@ -118,7 +228,7 @@ int main(int argc, char **argv)
 	size_t total_end = pcm.size();
 	//size_t total_end = 441000;
 	for (unsigned i = 0; i < total_end; i += BUFSIZE) {
-		fprintf(stderr, "\b\b\b\b\b\b\b%7.2f", i / 44100.0);
+		fprintf(stderr, "\b\b\b\b\b\b\b%7.2f", i / sample_rate);
 		size_t end = std::min<size_t>(i + BUFSIZE, total_end);
 	
 		hypothesis *hyp = new hypothesis[NUM_THEORIES];
@@ -153,7 +263,7 @@ int main(int argc, char **argv)
 
 		prev_hyp = hyp;
 	}
-	fprintf(stderr, "\b\b\b\b\b\b\b%7.2f\n", total_end / 44100.0);
+	fprintf(stderr, "\b\b\b\b\b\b\b%7.2f\n", total_end / sample_rate);
 
 	// best winner
 	double best_cost = HUGE_VAL;
@@ -174,14 +284,10 @@ int main(int argc, char **argv)
 
 	reverse(best_path.begin(), best_path.end());
 
-	fprintf(stderr, "Writing misalignment graphs to misalignment.plot...\n");
-	FILE *fp = fopen("misalignment.plot", "w");
-	for (unsigned i = 0; i < best_path.size(); ++i) {
-		fprintf(fp, "%f %f\n", i * BUFSIZE / 44100.0, best_path[i]);
-	}
-	fclose(fp);
-	
 	// save some RAM
+
+	FILE *fp;
+
 	norm = std::vector<float_stereo_sample>();
 	for (unsigned i = 0; i < alloc_hypot.size(); ++i) {
 		delete[] alloc_hypot[i];
@@ -201,7 +307,7 @@ int main(int argc, char **argv)
 		aligned_pcm[i].left = left;
 		aligned_pcm[i].right = clip(right);
 
-		mono_pcm[i] = clip(lrintf(inv_sd * 4096.0 * (left + right)));
+		mono_pcm[i] = clip((int)(inv_sd * 4096.0 * (left + right)));
 
 		if (i % 4096 == 0) {
 			fprintf(stderr, "\b\b\b\b\b\b\b\b%7.2f%%", 100.0 * i / total_end);
@@ -209,13 +315,23 @@ int main(int argc, char **argv)
 	}
 	fprintf(stderr, "\b\b\b\b\b\b\b%7.2f%%\n", 100.0);
 
-	fprintf(stderr, "Writing realigned stereo channels to aligned.raw...\n");
-	fp = fopen("aligned.raw", "wb");
-	fwrite(aligned_pcm.data(), sizeof(stereo_sample) * aligned_pcm.size(), 1, fp);
-	fclose(fp);
-
-	fprintf(stderr, "Writing combined mono track to combined.raw...\n");
-	fp = fopen("combined.raw", "wb");
+	dest_file.chunk_id = 0x46464952; // RIFF
+	dest_file.chunk_size = 36 + (sizeof(short) * mono_pcm.size());
+	dest_file.format = 0x45564157; // WAVE
+	dest_file.subchunk1_id = 0x20746d66; // fmt
+	dest_file.subchunk1_size = 16;
+	dest_file.audio_format = 1;
+	dest_file.num_channels = 1;
+	dest_file.bits_per_sample = 16;
+	dest_file.sample_rate = (unsigned int)sample_rate;
+	dest_file.byte_rate = (dest_file.sample_rate * dest_file.num_channels) + (dest_file.bits_per_sample / 8);
+	dest_file.block_align = dest_file.num_channels * (dest_file.bits_per_sample / 8);
+	dest_file.subchunk2_id = 0x61746164;
+	dest_file.subchunk2_size = sizeof(short) * mono_pcm.size();
+	
+	fprintf(stderr, "Writing combined mono track...\n");
+	fp = fopen(argv[2], "wb");
+	fwrite(&dest_file, sizeof(char) * 44, 1, fp);
 	fwrite(mono_pcm.data(), sizeof(short) * mono_pcm.size(), 1, fp);
 	fclose(fp);
 
@@ -261,5 +377,4 @@ int main(int argc, char **argv)
 	}
 #endif
 	
-
 }
